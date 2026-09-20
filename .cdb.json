@@ -12,7 +12,7 @@
         "tools"
     ],
     "license": "LGPL-2.1-or-later",
-    "media_license": "CC-BY-SA-3.0",
+    "media_license": "CC-BY-4.0",
     "repo": "https://github.com/sakel-hub/x_player_api",
     "issue_tracker": "https://github.com/sakel-hub/x_player_api/issues",
     "website": "https://github.com/sakel-hub/x_player_api#readme"

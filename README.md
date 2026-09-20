@@ -3,7 +3,7 @@
 [![ContentDB](https://content.luanti.org/packages/SaKeL/x_player_api/shields/title/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
 [![ContentDB Downloads](https://content.luanti.org/packages/SaKeL/x_player_api/shields/downloads/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
 [![License: LGPL 2.1](https://img.shields.io/badge/License-LGPL_v2.1-blue.svg)](license.txt)
-[![Media License: CC-BY-SA 3.0](https://img.shields.io/badge/Media-CC_BY--SA_3.0-lightgrey.svg)](license.txt)
+[![Media License: CC-BY 4.0](https://img.shields.io/badge/Media-CC_BY_4.0-lightgrey.svg)](license.txt)
 
 Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), dual-model visual proxies with observer network filtering (`observers.lua`, `proxies.lua`), bone override throttling (`bone_overrides.lua`), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
 
@@ -961,5 +961,5 @@ Enable `x_player_api` in your world configuration. If `player_api` is present, `
 
 ## Authors & License
 
-See `license.txt` for license details (LGPLv2.1+ / CC BY-SA 3.0).
+See `license.txt` for license details (LGPLv2.1+ / CC-BY-4.0).
 
