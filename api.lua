@@ -55,6 +55,10 @@
 ---@field trigger_equip? fun(player: ObjectRef, item_name?: string, duration?: number): boolean
 ---@field clear_equip_sound_cache? fun(item_name?: string)
 ---@field clear_consumable_cache? fun(item_name?: string)
+---@field is_consumable? fun(item_name?: string): boolean
+---@field trigger_eat? fun(player: ObjectRef, duration?: number, item_name?: string)
+---@field cancel_eat? fun(player: ObjectRef): boolean
+---@field spawn_eat_particles? fun(p: ObjectRef, item?: string, dur?: number, ptype?: string): integer|nil
 ---@field get_wield_item_visibility? fun(player: ObjectRef): boolean
 ---@field set_wield_item_visibility? fun(player: ObjectRef, visible: boolean)
 ---@field wiggle_b3d_data? fun(data: string): string, integer, integer

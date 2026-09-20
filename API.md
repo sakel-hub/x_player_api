@@ -1275,6 +1275,22 @@ function x_player_api.trigger_eat(player: ObjectRef, duration?: number, item_nam
 * `duration` (`number?`): Action duration in seconds
 * `item_name` (`string?`): Consumed item name
 
+#### `x_player_api.cancel_eat`
+
+Cancel active eating animation, clear state, and stop particle emitters
+
+```lua
+function x_player_api.cancel_eat(player: ObjectRef) -> boolean
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `was_eating` (`boolean`): Whether player was actively eating
+
 ---
 
 ## 3D Wield Item API

@@ -605,6 +605,35 @@ function x_player_api.trigger_eat(player, duration, item_name)
 	x_player_api.spawn_eat_particles(player, item_name, act_duration, cdef.particle_type)
 end
 
+---Cancel active eating animation, clear state, and stop particle emitters
+---@param player ObjectRef Target player
+---@return boolean was_eating Whether player was actively eating
+function x_player_api.cancel_eat(player)
+	if not player or not player.is_player or not player:is_player() then return false end
+	local name = player:get_player_name()
+	local ctrl = x_player_api.controls
+	local states = ctrl and ctrl.player_states
+	local pstate = states and states[name]
+	if not pstate then return false end
+
+	local time_now = core.get_us_time() * 0.000001
+	local was_eating = (pstate.eat_until ~= nil and pstate.eat_until > time_now) or false
+	pstate.eat_until = 0
+	pstate.eat_action = nil
+	pstate.last_chew_particle_time = 0
+
+	if pstate.semantic_state then
+		pstate.semantic_state.eating = false
+	end
+
+	local pdata = x_player_api.get_animation(player)
+	if pdata and pdata.action == "eat" then
+		x_player_api.play_action(player, nil)
+	end
+
+	return was_eating
+end
+
 -- Trigger eat animation when player consumes food/drink item
 core.register_on_item_eat(function(...)
 	if not x_player_api.enable_eating then

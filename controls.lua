@@ -548,6 +548,15 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 		end
 	end
 
+	-- Auto-cancel eating state when active combat, mining, bow, or blocking inputs occur
+	if (is_lmb and not item_info.is_food) or is_aiming_bow or is_blocking then
+		if pstate.eat_until and pstate.eat_until > 0 then
+			pstate.eat_until = 0
+			pstate.eat_action = nil
+			pstate.last_chew_particle_time = 0
+		end
+	end
+
 	for i = 1, #CONTROL_KEYS do
 		local key = CONTROL_KEYS[i]
 		local pressed = current_controls[key]
@@ -816,11 +825,24 @@ local function resolve_action(player, pstate, controls, item_info, wield_name,
 	local is_eating = (x_player_api.enable_eating ~= false)
 		and ((pstate and pstate.eat_until and (pstate.eat_until > time_now)) or is_food_click) or false
 
+	-- Eating auto-cancels immediately if user activates combat/mining (LMB), bow (aim/shoot), or shield blocking
+	local is_combat_or_mine_input = (controls.LMB or controls.dig) and not item_info.is_food
+	local cancel_eating = is_combat_or_mine_input or is_aiming_bow or is_shooting_bow or is_blocking
+
+	if is_eating and cancel_eating then
+		if pstate then
+			pstate.eat_until = 0
+			pstate.eat_action = nil
+			pstate.last_chew_particle_time = 0
+		end
+		is_eating = false
+	end
+
 	if pstate and not is_eating and pstate.eat_action then
 		pstate.eat_action = nil
 	end
 	if pstate then
-		if is_food_click then
+		if is_food_click and not cancel_eating then
 			local cdef = x_player_api.get_consumable_definition(wield_name)
 			local act_duration = (cdef and cdef.duration) or 1.34
 			local act_name = (cdef and cdef.action) or "eat"
