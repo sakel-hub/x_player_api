@@ -450,8 +450,6 @@ core.register_on_player_hpchange(function(player, hp_change)
 end)
 
 -- Spatial ground, liquid, and ladder detection is handled modularly in environment.lua
-local is_player_in_liquid = function(pos) return x_player_api.is_player_in_liquid(pos) end
-local is_player_on_ladder = function(pos) return x_player_api.is_player_on_ladder(pos) end
 local is_ground_near = function(pos, dist, pstate) return x_player_api.is_ground_near(pos, dist, pstate) end
 
 ---Bitmask constants corresponding to Luanti engine control bits
@@ -799,7 +797,7 @@ end
 ---@return boolean is_hurt Whether reacting to damage
 ---@return boolean is_equipping Whether playing equip montage
 local function resolve_action(player, pstate, controls, item_info, wield_name,
-		hp, time_now, is_gesture_emote, active_emote, is_acting)
+		hp, time_now, is_gesture_emote, active_emote)
 	local can_block = item_info.is_shield
 	if not can_block and x_player_api.blocking_predicates then
 		for _, pred in ipairs(x_player_api.blocking_predicates) do
@@ -845,7 +843,9 @@ local function resolve_action(player, pstate, controls, item_info, wield_name,
 
 	-- Equipping animation auto-cancels immediately if active combat or defense inputs occur
 	local is_active_combat_input = (controls.LMB or controls.dig) and not item_info.is_food
-	if is_equipping and (is_active_combat_input or is_blocking or is_eating or is_aiming_bow or is_shooting_bow or is_hurt) then
+	local cancel_equip = is_active_combat_input or is_blocking or is_eating
+		or is_aiming_bow or is_shooting_bow or is_hurt
+	if is_equipping and cancel_equip then
 		if pstate then
 			pstate.equip_until = 0
 		end
@@ -925,7 +925,7 @@ function x_player_api.get_player_state(player, time_now)
 	local action, is_blocking, is_aiming_bow, is_shooting_bow,
 		is_eating, is_hurt, is_equipping = resolve_action(
 			player, pstate, controls, item_info, wield_name,
-			hp, time_now, is_gesture_emote, active_emote, is_acting)
+			hp, time_now, is_gesture_emote, active_emote)
 
 	-- Extensible evaluators pipeline (allows third-party mods to register custom states)
 	if #ctrl.locomotion_evaluators > 0 or #ctrl.action_evaluators > 0 then

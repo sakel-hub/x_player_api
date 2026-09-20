@@ -850,7 +850,8 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 	local has_b3d = not model or (model.mesh and not model.mesh:match("%.glb$")) or model.mesh_b3d
 
 	-- Update GLB proxy wield entity
-	if not is_pure_b3d and proxies and proxies.glb and proxies.glb:is_valid() and data.glb and data.glb:get_luaentity() then
+	if not is_pure_b3d and proxies and proxies.glb and proxies.glb:is_valid()
+			and data.glb and data.glb:get_luaentity() then
 		if has_glb then
 			local v_size_glb, pos_glb, rot_glb, glow_glb, col_glb = x_player_api.get_wield_attachment_params(wield_stack, "glb")
 			local props_glb = {
@@ -884,7 +885,8 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 	end
 
 	-- Update B3D wield entity attached to B3D proxy
-	if not is_pure_b3d and proxies and proxies.b3d and proxies.b3d:is_valid() and data.b3d and data.b3d:get_luaentity() then
+	if not is_pure_b3d and proxies and proxies.b3d and proxies.b3d:is_valid()
+			and data.b3d and data.b3d:get_luaentity() then
 		if has_b3d then
 			local v_size_b3d, pos_b3d, rot_b3d, glow_b3d, col_b3d = x_player_api.get_wield_attachment_params(wield_stack, "b3d")
 			local props_b3d = {

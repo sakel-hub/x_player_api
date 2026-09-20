@@ -96,8 +96,6 @@ local player_attached = x_player_api.player_attached
 
 ---@type ObjectRef[] Locally maintained array of connected players for zero-allocation tick iteration
 x_player_api.connected_players = x_player_api.connected_players or {}
----@type ObjectRef[]
-local connected_players = x_player_api.connected_players
 
 ---Get or initialize internal player state data table
 ---@nodiscard
@@ -617,15 +615,13 @@ function x_player_api.register_animation_alias(alias, target)
 end
 
 ---Set active animation for player
----@param player ObjectRef Target player
----@param anim_name string Animation name or alias
 ---Set animation on player ObjectRef, synchronizing visual proxies
 ---@param player ObjectRef Target player
 ---@param anim_name string Animation identifier for GLB proxy (locomotion layer in multitrack)
 ---@param speed? number Playback speed (defaults to model's animation_speed)
 ---@param loop_or_blend? boolean|number Whether to loop playback (boolean) or transition blend time in seconds (number)
 ---@param override_local? boolean Whether local client animation prediction should be overridden
----@param anim_name_b3d? string|boolean Optional separate animation identifier for B3D proxy, or false to skip B3D updates
+---@param anim_name_b3d? string|boolean Optional animation ID for B3D proxy, or false to skip B3D
 function x_player_api.set_animation(player, anim_name, speed, loop_or_blend, override_local, anim_name_b3d)
 	anim_name = x_player_api.animation_aliases[anim_name] or anim_name
 	local player_data = get_player_data(player)
