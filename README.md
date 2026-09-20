@@ -1,8 +1,13 @@
-# Luanti mod: x_player_api
+# X Player API [x_player_api]
 
-![x_player_api Rig Animation Showcase](screenshot.png)
+[![ContentDB](https://content.luanti.org/packages/SaKeL/x_player_api/shields/title/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
+[![ContentDB Downloads](https://content.luanti.org/packages/SaKeL/x_player_api/shields/downloads/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
+[![License: LGPL 2.1](https://img.shields.io/badge/License-LGPL_v2.1-blue.svg)](license.txt)
+[![Media License: CC-BY-SA 3.0](https://img.shields.io/badge/Media-CC_BY--SA_3.0-lightgrey.svg)](license.txt)
 
 Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), dual-model visual proxies with observer network filtering (`observers.lua`, `proxies.lua`), bone override throttling (`bone_overrides.lua`), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
+
+![x_player_api Rig Animation Showcase](screenshot.png)
 
 Seamlessly serves modern `.glb` models to Luanti 5.17.0+ clients while providing zero-overhead fallback to legacy `.b3d` models for older clients on the same multiplayer server. Fully backward compatible with classic `.b3d` single-track models and third-party mods (`3d_armor`, `skinsdb`, `simple_skins`, `wieldview`).
 
@@ -123,7 +128,7 @@ With glTF multi-track:
 | **`sprint`** | Hold `aux1` (`E`) or double-tap `W` while moving forward | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | High-knee forward sprint stride with dynamic forward torso lean. |
 | **`crouch`** | Hold `sneak` (`Shift`) while stationary | `{-0.3, 0.0, -0.3, 0.3, 1.45, 0.3}` | 1.25 m | Low stealth crouch with bent knees; lowered hitbox and eye height. |
 | **`crouch_walk`** | Hold `sneak` (`Shift`) + move | `{-0.3, 0.0, -0.3, 0.3, 1.45, 0.3}` | 1.25 m | Cautious stealth stride; lets you sneak through 1.5m high spaces. |
-| **`slide`** | Tap `sneak` (`Shift`) while sprinting | `{-0.4, 0.0, -0.4, 0.4, 1.1, 0.4}` | 0.90 m | Knee ground-slide under low obstacles. |
+| **`slide`** | Tap `sneak` (`Shift`) while sprinting | `{-0.4, 0.0, -0.4, 0.4, 1.1, 0.4}` | 0.90 m | Knee ground-slide with forward impulse; reduced hitbox height (1.1m) lets you slide under low overhangs, tree limbs, and obstacles. |
 | **`jump`** | Airborne ascending (`velocity.y > 0.5`) or takeoff impulse | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Dynamic leap with mid-air knee tuck and apex stretch. Automatically plays during upward motion in jumps or flight ascent. |
 | **`fall`** | Airborne descending (`velocity.y < -0.5`) | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Aerodynamic downward fall with arms stabilized outward. Plays during downward jump descents, cliff drops, and flight descent. |
 | **`swim`** | Submerged in water / liquid | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Horizontal breaststroke swimming cycle with scissor leg kicks. |
@@ -154,7 +159,7 @@ With glTF multi-track:
 | `/wave` | **Wave** | Raises right arm high above the right shoulder clear of the face, waving left and right. |
 | `/point` | **Point** | Extends right arm forward, pointing in target direction. |
 | `/cheer` | **Cheer** | Pumps both arms overhead in a wide celebratory V-shape with hands held wide from the head. |
-| `/bow` | **Bow** | Single graceful courtly bow: right hand over heart/chest, left arm swept back, bowing respectfully with a smooth hold and recovery. Cancels automatically on movement. |
+| `/bow` | **Bow** | Single graceful courtly bow: right hand over heart/chest, left arm swept back, bowing respectfully with a smooth hold and recovery. The glTF model locks pelvis root translation to `(0, 0, 0)` and counter-rotates leg bones so both feet remain firmly anchored to the ground without sliding or hovering. Cancels automatically on movement. |
 | `/sit` | **Sit** | Sits down on the spot; move in any direction to stand back up. |
 | `/lay` | **Lay** | Lies down flat on the spot facing skyward; move in any direction to stand back up. |
 | `/hurt` | **Hurt** | Triggers the hurt flinch animation immediately (for testing & inspection). |
@@ -934,6 +939,23 @@ The export behavior and workspace settings are configured in [`.luarc.json`](.lu
 * Pre-defines global engine types (`core`, `player_api`, `x_player_api`, `vector`, `ItemStack`).
 * Excludes asset directories, test harnesses, and scratch scripts from documentation output.
 * Sets package export namespace to `x_player_api`.
+
+---
+
+## Installation
+
+### From ContentDB
+Search for **X Player API** in the Luanti online content repository and click **Install**.
+
+Alternatively, install directly from the ContentDB package page: [https://content.luanti.org/packages/SaKeL/x_player_api/](https://content.luanti.org/packages/SaKeL/x_player_api/)
+
+### From Git
+Clone directly into your Luanti `mods/` directory:
+```bash
+git clone https://github.com/sakel-hub/x_player_api.git
+```
+
+Enable `x_player_api` in your world configuration. If `player_api` is present, `x_player_api` safely and seamlessly acts as a drop-in override.
 
 ---
 
