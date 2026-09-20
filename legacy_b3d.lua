@@ -69,7 +69,7 @@ function x_player_api.evaluate_b3d_animation(player, state, model)
 			-- Moving while acting: use baked composite (walk_mine, walk_eat, etc.) if available
 			if anims["walk_" .. action] then
 				return "walk_" .. action
-			elseif (action == "mine" or action:find("^attack_") or action == "eat") and anims.walk_mine then
+			elseif (action == "mine" or action:sub(1, 7) == "attack_" or action == "eat") and anims.walk_mine then
 				return "walk_mine"
 			elseif anims[action] then
 				return action
@@ -140,7 +140,8 @@ function x_player_api.step_b3d_animation(player, state, model, animation_speed_m
 		-- Only retrigger discrete, non-looping combat attacks (e.g. attack_slash, attack_thrust)
 		-- Continuous actions (eat, block, bow_aim, equip) and looping actions (mine, walk_mine)
 		-- must NEVER be forcefully reset by cycle_count.
-		if not loop and (chosen_anim == "attack_slash" or chosen_anim == "attack_thrust" or chosen_anim:find("^attack_")) then
+		if not loop and (chosen_anim == "attack_slash" or chosen_anim == "attack_thrust"
+				or chosen_anim:sub(1, 7) == "attack_") then
 			force_retrigger = true
 		end
 	end
@@ -176,7 +177,7 @@ function x_player_api.step_b3d_animation(player, state, model, animation_speed_m
 		pdata.animation_loop = loop
 	end
 
-	local is_pure_native = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
+	local is_pure_native = x_player_api.is_pure_native_b3d_active(player)
 
 	if is_pure_native then
 		-- In pure native B3D mode: manage local animation prediction vs extended animations

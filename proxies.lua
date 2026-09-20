@@ -462,9 +462,7 @@ core.register_on_joinplayer(x_player_api.wrap_player_metatable)
 core.register_on_joinplayer(setup_player_proxies)
 core.register_on_leaveplayer(cleanup_player_proxies)
 core.register_on_respawnplayer(on_respawn_player_proxies)
-if core.register_on_shutdown then
-	core.register_on_shutdown(on_shutdown_cleanup_proxies)
-end
+core.register_on_shutdown(on_shutdown_cleanup_proxies)
 
 core.register_chatcommand("clean_proxies", {
 	params = "",

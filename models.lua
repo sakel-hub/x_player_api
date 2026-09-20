@@ -156,12 +156,12 @@ function x_player_api.register_model(name, def)
 	end
 
 	-- Automatically default base_model to character.b3d for 3d_armor variants if unspecified
-	if def.base_model == nil and name:find("3d_armor_character") and models["character.b3d"] then
+	if def.base_model == nil and name:find("3d_armor_character", 1, true) and models["character.b3d"] then
 		def.base_model = "character.b3d"
 	end
 
 	-- Dynamically scan and wiggle B3D mesh if needed to prevent Irrlicht matrix decomposition bug
-	if def.mesh and def.mesh:match("%.b3d$") and not def.mesh:find("^_wiggled_")
+	if def.mesh and def.mesh:match("%.b3d$") and def.mesh:sub(1, 9) ~= "_wiggled_"
 			and x_player_api.scan_and_wiggle_b3d_model then
 		def.mesh = x_player_api.scan_and_wiggle_b3d_model(def.mesh)
 	end
@@ -256,7 +256,7 @@ function x_player_api.register_model(name, def)
 	end
 
 	models[name] = def
-	if def.mesh and def.mesh:find("^_wiggled_") and def.mesh ~= name then
+	if def.mesh and def.mesh:sub(1, 9) == "_wiggled_" and def.mesh ~= name then
 		models[def.mesh] = def
 	end
 	def.animations = def.animations or {}

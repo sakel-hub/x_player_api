@@ -247,9 +247,9 @@ function x_player_api.get_consumable_definition(item_name)
 		local is_drink = (core.get_item_group(item_name, "drink") > 0)
 			or (core.get_item_group(item_name, "potion") > 0)
 			or (core.get_item_group(item_name, "bottle") > 0)
-			or (item_name:find("potion") ~= nil)
-			or (item_name:find("bottle") ~= nil)
-			or (item_name:find("drink") ~= nil)
+			or (item_name:find("potion", 1, true) ~= nil)
+			or (item_name:find("bottle", 1, true) ~= nil)
+			or (item_name:find("drink", 1, true) ~= nil)
 		if is_drink then
 			resolved = {
 				action = "eat",
@@ -324,7 +324,8 @@ function x_player_api.is_consumable(item_name)
 	end
 
 	local lname = item_name:lower()
-	if lname:find("^food_") or lname:find("potion") or lname:find("bottle") or lname:find("drink") then
+	if lname:sub(1, 5) == "food_" or lname:find("potion", 1, true)
+			or lname:find("bottle", 1, true) or lname:find("drink", 1, true) then
 		return true
 	end
 

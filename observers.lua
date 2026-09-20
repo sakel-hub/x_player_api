@@ -70,7 +70,10 @@ end
 
 ---Refresh observer visibility sets on all active visual proxy entities and wield items across connected players
 function x_player_api.refresh_observers()
-	for _, player in ipairs(core.get_connected_players()) do
+	local connected = (x_player_api.connected_players and #x_player_api.connected_players > 0
+		and x_player_api.connected_players) or core.get_connected_players()
+	for i = 1, #connected do
+		local player = connected[i]
 		local proxies = x_player_api.get_visual_proxies(player)
 		local wield_data = x_player_api.wield_entities[player:get_player_name()]
 		if proxies then
@@ -78,8 +81,9 @@ function x_player_api.refresh_observers()
 			local model = pdata and x_player_api.get_model(pdata.model)
 			local active_format = x_player_api.get_model_format()
 			local mesh_glb = (active_format ~= "b3d") and model and (model.mesh_glb
-				or (model.mesh and model.mesh:match("%.glb$") and model.mesh))
-			local mesh_b3d = model and ((model.mesh and not model.mesh:match("%.glb$") and model.mesh) or model.mesh_b3d)
+				or (model.mesh and model.mesh:sub(-4) == ".glb" and model.mesh))
+			local mesh_b3d = model and ((model.mesh and model.mesh:sub(-4) ~= ".glb" and model.mesh)
+				or model.mesh_b3d)
 
 			if active_format == "b3d" or not mesh_glb then
 				if proxies.b3d and proxies.b3d:is_valid() then

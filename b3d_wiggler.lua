@@ -334,11 +334,7 @@ function x_player_api.scan_and_wiggle_b3d_model(mesh_name, full_path)
 	if not added_dynamic_media[target_name] then
 		added_dynamic_media[target_name] = true
 		if engine.dynamic_add_media then
-			local ok = pcall(engine.dynamic_add_media, {
-				filename = target_name,
-				filedata = wiggled_data,
-			})
-			if not ok and engine.get_worldpath then
+			if engine.get_worldpath then
 				local media_dir = engine.get_worldpath() .. "/x_player_api_media"
 				if engine.mkdir then engine.mkdir(media_dir) end
 				local out_path = media_dir .. "/" .. target_name
@@ -346,8 +342,18 @@ function x_player_api.scan_and_wiggle_b3d_model(mesh_name, full_path)
 				if out_file then
 					out_file:write(wiggled_data)
 					out_file:close()
-					pcall(engine.dynamic_add_media, out_path)
+					engine.dynamic_add_media(out_path)
+				else
+					engine.dynamic_add_media({
+						filename = target_name,
+						filedata = wiggled_data,
+					})
 				end
+			else
+				engine.dynamic_add_media({
+					filename = target_name,
+					filedata = wiggled_data,
+				})
 			end
 		end
 	end
