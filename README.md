@@ -22,17 +22,17 @@ Seamlessly serves modern `.glb` models to Luanti 5.17.0+ clients while providing
 | Component | Minimum Version | Recommended Version | Experience & Capabilities |
 | :--- | :---: | :---: | :--- |
 | **Server** | **Luanti 5.10.0+** | **Luanti 5.17.0+** | Network observer culling (`set_observers`), dual visual proxy routing, zero-overhead lifecycle cleanup, high-precision timer. |
-| **Client** | **Minetest 5.10.0** | **Luanti 5.17.0+** | **Optimal Experience:** Multi-track glTF animations, bone-masked locomotion & action blending, synchronized 3rd-person attachment interpolation, zero input latency. |
+| **Client** | **Luanti 5.10.0** | **Luanti 5.17.0+** | **Optimal Experience:** Multi-track glTF animations, bone-masked locomotion & action blending, synchronized 3rd-person attachment interpolation, zero input latency. |
 
-### Limitations of Older Clients (Minetest 5.10.x – 5.11.x)
+### Limitations of Older Clients (Luanti 5.10.x – 5.11.x)
 
 While `x_player_api` provides automatic backward compatibility so older clients do not crash and can join multiplayer worlds alongside modern clients, **older client engines have intrinsic engine limitations**:
 
 1. **Attachment Camera Jitter in 3rd Person (F5)**:
-   - In older clients (e.g. Minetest 5.10), child entities attached to the local player (`ClientActiveObject` via `set_attach`) do not interpolate smoothly with the local camera. The local player and camera update at client display refresh rates (60–144 Hz), while older clients update attached child transforms only on server packet ticks, producing noticeable camera-relative micro-vibration.
+   - In older clients (e.g. Luanti 5.10), child entities attached to the local player (`ClientActiveObject` via `set_attach`) do not interpolate smoothly with the local camera. The local player and camera update at client display refresh rates (60–144 Hz), while older clients update attached child transforms only on server packet ticks, producing noticeable camera-relative micro-vibration.
    - **Luanti 5.17+** completely eliminates this through modernized, camera-synchronized attachment interpolation.
 2. **Client-Side Animation Prediction Contention**:
-   - Minetest 5.10 has hardcoded client-side animation prediction in C++ (`LocalPlayer`). Because `x_player_api` suppresses client prediction (`set_local_animation(0)`) to drive custom action layers from the server without desync, older clients continuously fight against server packets during held inputs (like mining or walking), causing perceived "lost frames" or micro-resets.
+   - Luanti 5.10 has hardcoded client-side animation prediction in C++ (`LocalPlayer`). Because `x_player_api` suppresses client prediction (`set_local_animation(0)`) to drive custom action layers from the server without desync, older clients continuously fight against server packets during held inputs (like mining or walking), causing perceived "lost frames" or micro-resets.
    - **Luanti 5.17+** cleanly decouples server-driven animation layers and respects local override flags.
 3. **Single-Track Fallback**:
    - Older clients cannot render `.glb` multi-track models and are automatically served the single-timeline `.b3d` fallback. While keyframe boundaries in `character.b3d` are mathematically calibrated to seamless loop points, older Irrlicht animation tickers lack the modern quaternion SLERP and high-precision delta-time interpolation introduced in Luanti 5.12–5.17.
@@ -597,7 +597,7 @@ In multiplayer environments, `x_player_api` automatically resolves and delivers 
 Both cohorts observe each other in the same world simultaneously via dual visual proxies without duplicate packets or unsupported mesh crashes.
 
 > [!NOTE]
-> For details on why older clients (< 5.12, e.g. Minetest 5.10) experience camera-relative attachment vibration or prediction conflicts compared to modern 5.17+ clients, see [Limitations of Older Clients](#limitations-of-older-clients-minetest-510x--511x).
+> For details on why older clients (< 5.12, e.g. Luanti 5.10) experience camera-relative attachment vibration or prediction conflicts compared to modern 5.17+ clients, see [Limitations of Older Clients](#limitations-of-older-clients-luanti-510x--511x).
 
 #### Runtime Switching & Testing (Lua API)
 
