@@ -1,0 +1,20 @@
+# Enable eating animations, sounds, and food crumb / droplet particle effects
+x_player_api.enable_eating (Enable Eating Simulation) bool true
+
+# Enable 3D wielded item rendering attached to the player's hand
+x_player_api.enable_wield_item (Enable 3D Wield Items) bool true
+
+# Throttle update interval for 3D wield item polling in seconds
+x_player_api.wield_update_interval (Wield Item Update Throttle) float 0.2 0.05 1.0
+
+# Enable double-tapping the forward movement key to sprint
+x_player_api.enable_double_tap_sprint (Enable Double-Tap Sprint) bool true
+
+# Enable sound effects played when equipping or switching weapons and tools
+x_player_api.enable_equip_sound (Enable Equip Sound Effects) bool true
+
+# Preferred model format (glb for multi-track modern format, b3d for legacy single-timeline)
+x_player_api.model_format (Preferred Model Format) enum glb glb,b3d
+
+# Render B3D models directly on native player entity without visual proxies, preserving native client prediction
+x_player_api.pure_native_b3d (Pure Native B3D Mode) bool false

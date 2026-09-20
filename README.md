@@ -1,8 +1,86 @@
 # Luanti mod: x_player_api
 
-Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
+![x_player_api Rig Animation Showcase](screenshot.png)
 
-Fully backward compatible with classic `.b3d` single-track models and standard mods (`3d_armor`, `skinsdb`, `simple_skins`).
+Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), dual-model visual proxies with observer network filtering (`observers.lua`, `proxies.lua`), bone override throttling (`bone_overrides.lua`), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
+
+Seamlessly serves modern `.glb` models to Luanti 5.17.0+ clients while providing zero-overhead fallback to legacy `.b3d` models for older clients on the same multiplayer server. Fully backward compatible with classic `.b3d` single-track models and third-party mods (`3d_armor`, `skinsdb`, `simple_skins`, `wieldview`).
+
+---
+
+## Cutting-Edge Design & Supported Versions
+
+`x_player_api` is engineered as a **cutting-edge** player animation engine for Luanti. It pushes the boundaries of the engine with glTF 2.0 multi-track animation priority layers, zero-bandwidth observer culling, and synchronized visual proxies.
+
+### Recommended Version Matrix
+
+| Component | Minimum Version | Recommended Version | Experience & Capabilities |
+| :--- | :---: | :---: | :--- |
+| **Server** | **Luanti 5.10.0+** | **Luanti 5.17.0+** | Network observer culling (`set_observers`), dual visual proxy routing, zero-overhead lifecycle cleanup, high-precision timer. |
+| **Client** | **Minetest 5.10.0** | **Luanti 5.17.0+** | **Optimal Experience:** Multi-track glTF animations, bone-masked locomotion & action blending, synchronized 3rd-person attachment interpolation, zero input latency. |
+
+### Limitations of Older Clients (Minetest 5.10.x – 5.11.x)
+
+While `x_player_api` provides automatic backward compatibility so older clients do not crash and can join multiplayer worlds alongside modern clients, **older client engines have intrinsic engine limitations**:
+
+1. **Attachment Camera Jitter in 3rd Person (F5)**:
+   - In older clients (e.g. Minetest 5.10), child entities attached to the local player (`ClientActiveObject` via `set_attach`) do not interpolate smoothly with the local camera. The local player and camera update at client display refresh rates (60–144 Hz), while older clients update attached child transforms only on server packet ticks, producing noticeable camera-relative micro-vibration.
+   - **Luanti 5.17+** completely eliminates this through modernized, camera-synchronized attachment interpolation.
+2. **Client-Side Animation Prediction Contention**:
+   - Minetest 5.10 has hardcoded client-side animation prediction in C++ (`LocalPlayer`). Because `x_player_api` suppresses client prediction (`set_local_animation(0)`) to drive custom action layers from the server without desync, older clients continuously fight against server packets during held inputs (like mining or walking), causing perceived "lost frames" or micro-resets.
+   - **Luanti 5.17+** cleanly decouples server-driven animation layers and respects local override flags.
+3. **Single-Track Fallback**:
+   - Older clients cannot render `.glb` multi-track models and are automatically served the single-timeline `.b3d` fallback. While keyframe boundaries in `character.b3d` are mathematically calibrated to seamless loop points, older Irrlicht animation tickers lack the modern quaternion SLERP and high-precision delta-time interpolation introduced in Luanti 5.12–5.17.
+
+> [!TIP]
+> **Recommendation**: For server operators and players who want the intended fluid visual experience, running **Luanti 5.17.0 or newer** on both client and server is strongly recommended.
+
+---
+
+## Architecture: Dual-Model Visual Proxies & Observer Cohorts
+
+In multiplayer environments, servers frequently host a mix of modern Luanti 5.17.0+ clients (which support glTF 2.0 multi-track skeletal animation layers) and older clients (which only support single-timeline `.b3d` models). Attempting to send a glTF mesh to an older client causes missing models or engine errors, while forcing modern clients onto `.b3d` disables simultaneous multi-track blending.
+
+`x_player_api` solves this through a **dual-proxy entity architecture with engine observer culling**:
+
+```
+                               ┌─────────────────────────────┐
+                               │       Player SAO Root       │
+                               │  (visual_size = {x=0, y=0}) │
+                               │   Hitbox / Physics Intact   │
+                               └──────────────┬──────────────┘
+                                              │ set_attach
+                     ┌────────────────────────┴────────────────────────┐
+                     ▼                                                 ▼
+      ┌─────────────────────────────┐                   ┌─────────────────────────────┐
+      │  x_player_api:visual_glb    │                   │   x_player_api:visual_b3d   │
+      │   Modern glTF Multi-Track   │                   │    Legacy B3D Single-Track  │
+      └──────────────┬──────────────┘                   └──────────────┬──────────────┘
+                     │ set_observers                                   │ set_observers
+                     ▼                                                 ▼
+      ┌─────────────────────────────┐                   ┌─────────────────────────────┐
+      │     modern_cohort Users     │                   │     legacy_cohort Users     │
+      │    (Protocol >= 5.17.0)     │                   │      (Protocol < 5.17.0)    │
+      └─────────────────────────────┘                   └─────────────────────────────┘
+```
+
+### How the Dual-Proxy Architecture Operates
+
+1. **Native Player Visual Decoupling**: Upon player join, the native player object's visual properties are minimized (`visual_size = {x=0, y=0}`, `textures = {"blank.png"}`). The player's physics, raycasts, hitboxes, collision boxes, and camera positions remain untouched.
+2. **Dual Visual Proxy Entities**: Two non-physical child entities are spawned at the player's position and attached to the player root (`{x=0, y=0, z=0}`):
+   - `x_player_api:visual_glb`: Hosts `character.glb` with multi-track animation support.
+   - `x_player_api:visual_b3d`: Hosts `character.b3d` with single-timeline animation support.
+3. **Protocol Cohort Classification (`observers.lua`)**: When a player joins, their network protocol version is queried via `core.get_player_information(name).protocol_version`. If $\ge$ `core.protocol_versions["5.17.0"]`, the username is added to `x_player_api.modern_cohort`; otherwise, to `x_player_api.legacy_cohort`.
+4. **Zero-Bandwidth Engine Observer Filtering (`set_observers`)**: Luanti engine's `ObjectRef:set_observers` filters entity packet transmission directly at the network serialization layer:
+   - Modern clients only receive entity updates and animation packets for `visual_glb`.
+   - Legacy clients only receive entity updates and animation packets for `visual_b3d`.
+   - Neither client receives duplicate packets or unsupported mesh formats.
+5. **Dual Dispatching (`api.lua`)**: All high-level API methods (`set_model`, `set_animation`, `set_textures`) simultaneously dispatch to both proxies:
+   - **Modern clients** receive independent priority-blended glTF tracks (locomotion on priority 0, actions on priority 1).
+   - **Legacy clients** receive dynamically computed single-timeline frame ranges (`walk`, `walk_mine`, etc.).
+6. **Bone Override Throttling (`bone_overrides.lua`)**: Head gaze and look-pitch orientation overrides are passed through an angular threshold filter:
+   - If the rotational delta across pitch, yaw, and roll is less than $0.08$ radians ($\approx 4.5^\circ$), packet transmission is skipped.
+   - Saves substantial server network bandwidth during rapid client mouse look without any perceptible loss of visual fidelity.
 
 ---
 
@@ -46,12 +124,12 @@ With glTF multi-track:
 | **`crouch`** | Hold `sneak` (`Shift`) while stationary | `{-0.3, 0.0, -0.3, 0.3, 1.45, 0.3}` | 1.25 m | Low stealth crouch with bent knees; lowered hitbox and eye height. |
 | **`crouch_walk`** | Hold `sneak` (`Shift`) + move | `{-0.3, 0.0, -0.3, 0.3, 1.45, 0.3}` | 1.25 m | Cautious stealth stride; lets you sneak through 1.5m high spaces. |
 | **`slide`** | Tap `sneak` (`Shift`) while sprinting | `{-0.4, 0.0, -0.4, 0.4, 1.1, 0.4}` | 0.90 m | Knee ground-slide under low obstacles. |
-| **`jump`** | Press `Space` or moving upward in air | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Dynamic leap with mid-air knee tuck and apex stretch. |
-| **`fall`** | Air descent (`velocity.y < -5.5`) | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Aerodynamic downward fall with arms stabilized outward. |
+| **`jump`** | Airborne ascending (`velocity.y > 0.5`) or takeoff impulse | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Dynamic leap with mid-air knee tuck and apex stretch. Automatically plays during upward motion in jumps or flight ascent. |
+| **`fall`** | Airborne descending (`velocity.y < -0.5`) | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Aerodynamic downward fall with arms stabilized outward. Plays during downward jump descents, cliff drops, and flight descent. |
 | **`swim`** | Submerged in water / liquid | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Horizontal breaststroke swimming cycle with scissor leg kicks. |
 | **`climb`** | On ladder or vines | `{-0.3, 0.0, -0.3, 0.3, 1.7, 0.3}` | 1.47 m | Hand-over-hand ladder climbing while ascending (`Space`/`W`) or descending (`Shift`/`S`). When stationary on a ladder, automatically holds rungs with animation speed paused at 0. |
-| **`fly`** | Airborne moving fast with `W`/`A`/`S`/`D` at high speed ($\ge 6.5$ m/s, sprint in air, or fast mode) | `{-0.4, 0.0, -0.4, 0.4, 1.2, 0.4}` | 1.25 m | Dynamic superhero horizontal flight glide with streamlined arms, head looking ahead, and trailing legs. Automatically transitions to hovering when stopping or navigating below speed limit. Ground jumps always retain the jump animation. |
-| **`hover`** | Airborne stationary or navigating below flight speed ($< 6.5$ m/s) | `{-0.35, 0.0, -0.35, 0.35, 1.6, 0.35}` | 1.35 m | Gentle levitating hover with upright posture, rhythmic vertical buoyancy, stabilizing arms, and relaxed dangling legs. Automatically engages when stopped or drifting/navigating slowly in the air. |
+| **`fly`** | Airborne high-speed movement ($\ge 6.5$ m/s or 3D flight sprint) | `{-0.4, 0.0, -0.4, 0.4, 1.2, 0.4}` | 1.25 m | Dynamic superhero horizontal flight glide with streamlined arms, head looking ahead, and trailing legs. Seamlessly engages at high directional speed or during airborne sprint. |
+| **`hover`** | Airborne stationary or low-velocity float ($|\text{velocity}.y| \le 0.5$ m/s) | `{-0.35, 0.0, -0.35, 0.35, 1.6, 0.35}` | 1.35 m | Gentle levitating hover with upright posture, rhythmic vertical buoyancy, stabilizing arms, and relaxed dangling legs. Automatically engages when stopped or drifting vertically in the air without glitching to stand. |
 | **`sit`** | Chat command `/sit` or sitting node | `{-0.3, 0.0, -0.3, 0.3, 1.0, 0.3}` | 0.80 m | Relaxed seated posture with legs locked flat on the ground and subtle upper body breathing; automatically cancels when moving. |
 | **`lay`** | Chat command `/lay` or zero HP (death) | `{-0.6, 0.0, -0.6, 0.6, 0.3, 0.6}` | 0.30 m | Flat resting posture on back facing skyward, flush to the ground with gentle 80-frame sleeping breathing cycle; automatically cancels when moving. |
 
@@ -63,10 +141,11 @@ With glTF multi-track:
 | **`attack_slash`** | Click / hold `LMB` while wielding a sword, blade, or saber | Clean high-to-low diagonal sword cleave across the torso with 0 awkward arm roll. |
 | **`attack_thrust`** | Click / hold `LMB` while wielding a spear, pike, or javelin | Explosive forward thrust/jab. |
 | **`block`** | Hold `RMB` / `place` while holding a shield or guard item | Raises shield into active defensive guard stance. |
-| **`eat`** | Click / hold `LMB` (`dig`) or `RMB` (`place`) while holding food | Brings consumable directly to the mouth with rhythmic chewing motion. |
+| **`eat`** | Click `LMB` (`dig` / `on_use`) while holding food | Brings consumable directly to the mouth with rhythmic chewing motion. |
 | **`bow_aim`** | Hold `RMB` / `place` to charge bow, or wield a charged bow (`x_bows`) | Both arms angled inward in front of the chest with hands held closely together along the centerline. |
 | **`bow_shoot`** | Release drawn string or click `LMB` with charged bow | Dynamic string release snap and right arm recoil follow-through. |
 | **`hurt`** | Damaged / HP decrease (`on_player_hpchange`), or `player_api.trigger_hurt` | Defensive impact flinch snapping the head back and drawing arms inward protectively (~0.33s). |
+| **`equip`** | Switch wielded weapon/item in hotbar, or `player_api.trigger_equip` | Unreal Engine Mannequin-style quick equip montage: rapid dip towards hip/belt holster followed by a crisp draw and raise with an elastic overshoot (~0.33s). Auto-cancels with zero latency if attacking or mining. |
 
 ### Social Gestures & Emotes
 
@@ -84,7 +163,7 @@ With glTF multi-track:
 
 | Command | Privs | Description |
 | :--- | :--- | :--- |
-| `/test_anim` | `server` | Runs a continuous slideshow showcasing all 27 registered animations for 4.0s each. Each animation is announced in private chat with track and looping details. |
+| `/test_anim` | `server` | Runs a continuous slideshow showcasing all 28 registered animations for 4.0s each. Each animation is announced in private chat with track and looping details. |
 | `/test_anim <seconds>` | `server` | Runs the full slideshow with custom duration per animation (e.g. `/test_anim 2` or `/test_anim 5`). |
 | `/test_anim <anim_name> [sec]` | `server` | Previews a single specific animation on your character (e.g. `/test_anim hurt 3` or `/test_anim bow_aim 6`). |
 | `/test_anim stop` | `server` | Instantly cancels any active animation slideshow or single-anim preview, restoring normal gameplay animations. |
@@ -136,6 +215,86 @@ player_api.edit_model_animation("character.glb", "walk", {
 
 ---
 
+### Visual Proxies & Observer Cohort API
+
+`x_player_api` provides dedicated methods to inspect client cohorts, retrieve active visual proxy entities, and apply throttled bone transforms:
+
+```lua
+-- Check if a player connected with a modern client (protocol >= 5.17.0)
+local is_modern = x_player_api.is_modern_client("PlayerName")
+
+-- Inspect current observer cohorts
+local modern_set = x_player_api.get_modern_observers() -- table<string, boolean>
+local legacy_set = x_player_api.get_legacy_observers() -- table<string, boolean>
+
+-- Retrieve the visual proxy entities for a player
+local proxies = x_player_api.get_visual_proxies(player)
+if proxies then
+    local glb_entity = proxies.glb -- ObjectRef (x_player_api:visual_glb)
+    local b3d_entity = proxies.b3d -- ObjectRef (x_player_api:visual_b3d)
+end
+
+-- Apply network-throttled bone transformation (e.g. Head gaze / pitch look)
+-- Skips network packet transmission if rotation delta on "Head" is < 0.08 radians (~4.5°)
+x_player_api.set_bone_override(player, "Head", {x = 0, y = 6.35, z = 0}, {x = pitch, y = 0, z = 0})
+
+-- Force refresh observer visibility sets across all connected players
+x_player_api.refresh_observers()
+```
+
+*See [Visual Proxies & Observers API in API.md](API.md#visual-proxies--observers-api) for full method specifications, [PlayerProxies](API.md#playerproxies), and [BoneOverride](API.md#boneoverride).*
+
+---
+
+### Bridge Mod Pattern & 3rd-Party Integration (e.g. 3d_armor)
+
+Third-party mods that modify character models or attachment layers (such as `3d_armor`, `skinsdb`, or `wieldview`) can seamlessly integrate with the dual-model visual proxy architecture via a companion "bridge" mod (such as `x_player_bridge`).
+
+#### 1. Registering a Dual-Model Definition with Base Model Inheritance
+
+Instead of manually duplicating 70+ lines of animation frame ranges and tracks, leverage `base_model = "character.b3d"` to automatically inherit all 28 canonical animations (`animations` and `animations_glb`), hitboxes (`collisionbox`), eye height, step height, and playback speeds:
+
+```lua
+x_player_api.register_model("3d_armor_character.b3d", {
+    base_model = "character.b3d",          -- Inherits all 28 B3D + GLB animations and physics
+    mesh = "3d_armor_character.b3d",       -- Served to legacy clients
+    mesh_glb = "3d_armor_character.glb",   -- Served to modern 5.17.0+ clients
+    textures = {
+        "character.png",
+        "3d_armor_trans.png",
+        "3d_armor_trans.png",
+    },
+})
+```
+
+#### 2. Intercepting Visual Updates
+
+Hook into the mod's visual update routines to route textures and models to the dual visual proxies:
+
+```lua
+if core.get_modpath("3d_armor") then
+    local old_update_player_visuals = armor.update_player_visuals
+    function armor.update_player_visuals(self, player)
+        -- Call original logic to generate composited armor textures
+        old_update_player_visuals(self, player)
+
+        -- Ensure model resolves to the dual-model definition
+        x_player_api.set_model(player, "3d_armor_character.b3d")
+    end
+end
+```
+
+#### 3. Automatic Model Redirection
+
+Mods can register transparent redirects to map legacy model requests directly to dual models:
+
+```lua
+-- Redirect any legacy 3d_armor request to the registered dual model
+x_player_api.register_model_redirect("3d_armor_character.b3d", "3d_armor_character.b3d")
+```
+
+---
+
 ### Weapons & Combat Action Mapping
 
 The item action classifier automatically routes client click and hold inputs to upper-body action tracks (`attack_slash`, `attack_thrust`, `block`, `bow_aim`, `bow_shoot`). Mods can map actions by exact item name or item group:
@@ -154,11 +313,27 @@ player_api.register_item_action("my_rpg:dual_daggers", {
 player_api.register_item_action("my_mod:crystal_bow", {
     is_bow = true,
     action = "bow_shoot",
-    alt_action = "bow_aim",
+})
+
+-- Register custom weapon categories declaratively
+player_api.register_weapon_category("group:polearm", "attack_thrust")
+
+-- Register custom gestures and full-body posture emotes
+player_api.register_emote("salute", {
+    is_posture = false,
+    duration = 1.5,
+    description = "Perform a military salute",
+    msg = "Saluting Commander",
+})
+player_api.register_emote("kneel", {
+    is_posture = true, -- Handled via locomotion layer; cancels automatically on player movement
+    duration = -1,     -- Continuous posture until movement
+    description = "Kneel down (move to stand up)",
+    msg = "Kneeling down",
 })
 ```
 
-*See [player_api.register_item_action](API.md#player_apiregister_item_action) and [ItemActionDefinition](API.md#itemactiondefinition) in API.md.*
+*See [player_api.register_item_action](API.md#player_apiregister_item_action), [player_api.register_weapon_category](API.md#player_apiregister_weapon_category), [player_api.register_emote](API.md#player_apiregister_emote), and [ItemActionDefinition](API.md#itemactiondefinition) in API.md.*
 
 ---
 
@@ -259,12 +434,56 @@ player_api.trigger_bow_shoot(player, 0.35)
 -- Trigger eating animation and particle simulation programmatically
 player_api.trigger_eat(player, 1.2, "default:apple")
 
+-- Trigger weapon equip montage and play registered equip sound
+player_api.trigger_equip(player, "default:sword_steel")
+
 -- Directly play or stop any action track (force=true restarts if already active)
 player_api.play_action(player, "hurt", true)
 player_api.play_action(player, nil) -- Stops active action track
 ```
 
 *See [Locomotion & Action Controls API in API.md](API.md#locomotion--action-controls-api).*
+
+---
+
+### Declarative Equip Sound Registry (S.O.L.I.D. OCP)
+
+When switching items in the hotbar or calling `player_api.trigger_equip`, `x_player_api` plays high-fidelity positional draw sound effects (blades, bows, tools) with zero garbage collection overhead via an Open/Closed Principle (OCP) compliant registry:
+
+```lua
+-- Register a custom item or weapon sound override
+player_api.register_equip_sound("epic_weapons:excalibur", {
+    sound = "epic_holy_sword_draw",
+    gain = 0.85,
+    pitch = 1.0,
+    max_hear_distance = 24,
+})
+
+-- Or declare directly on the item definition:
+core.register_tool("magic_mod:crystal_blade", {
+    description = "Crystal Blade",
+    inventory_image = "crystal_blade.png",
+    _equip_sound = "magic_crystal_draw", -- or {sound = "...", gain = 0.8}
+    groups = {sword = 1, weapon = 1},
+})
+
+-- Suppress sound on stealth/silent items:
+player_api.register_equip_sound("stealth:dagger", false)
+-- or in definition: _equip_sound = false
+
+-- Query or manually play equip audio:
+local sound_def = player_api.get_equip_sound("default:sword_steel")
+player_api.play_equip_sound(player, "default:sword_steel")
+```
+
+**Resolution Precedence**:
+1. Exact item match in `player_api.registered_equip_sounds`
+2. Item definition field `_equip_sound`
+3. Group match in `player_api.registered_equip_sounds` (`group:sword`, `group:blade`, `group:saber`, `group:bow`, `group:tool`, `group:pickaxe`, `group:axe`, `group:shovel`)
+4. Explicit suppression (`false` or `""`)
+
+**Configuration**:
+* `player_api.enable_equip_sound = true` (or `x_player_api.enable_equip_sound = false` in `luanti.conf`).
 
 ---
 
@@ -364,16 +583,20 @@ end)
 
 `x_player_api` provides full dual-format support for both **GLB (glTF 2.0 binary)** and **B3D (Blitz3D)** player character models.
 
-#### Configuration (`luanti.conf`)
+#### Automatic Format Resolution & Observer Cohorts
 
-You can set the default model format globally:
-```ini
-# Choose 'glb' (default) for multi-track skeletal animation or 'b3d' for classic single-track timeline
-x_player_api.model_format = b3d
-```
-*(Also accessible graphically in the Luanti Settings tab under **Mods -> x_player_api**).*
+In multiplayer environments, `x_player_api` automatically resolves and delivers the compatible model per client without requiring manual server configuration:
+- **Modern Luanti 5.17.0+ clients** (`modern_cohort`): Render the GLB mesh with multi-track animation blending.
+- **Legacy clients** (`legacy_cohort`): Render the Blitz3D (`.b3d`) mesh with the unified single-track animation timeline.
 
-#### Runtime Switching (Lua API)
+Both cohorts observe each other in the same world simultaneously via dual visual proxies without duplicate packets or unsupported mesh crashes.
+
+> [!NOTE]
+> For details on why older clients (< 5.12, e.g. Minetest 5.10) experience camera-relative attachment vibration or prediction conflicts compared to modern 5.17+ clients, see [Limitations of Older Clients](#limitations-of-older-clients-minetest-510x--511x).
+
+#### Runtime Switching & Testing (Lua API)
+
+For debugging, development, or forced format overrides, the active format can be queried and switched dynamically:
 
 ```lua
 -- Query the active format ("glb" or "b3d")
@@ -383,6 +606,9 @@ local current_format = player_api.get_model_format()
 player_api.set_model_format("b3d") -- Switches to character.b3d / 3d_armor_character.b3d
 player_api.set_model_format("glb") -- Switches to character.glb / 3d_armor_character.glb
 ```
+
+> [!NOTE]
+> **Automatic 3D Wield Item Parity**: Switching between GLB and B3D automatically updates active wield items and compensates for Blitz3D exporter axis inversions. See [Dual-Format Orientation Parity & Exporter Coordinate Discrepancy](#dual-format-orientation-parity--exporter-coordinate-discrepancy) below.
 
 ---
 
@@ -394,13 +620,75 @@ player_api.set_model_format("glb") -- Switches to character.glb / 3d_armor_chara
 
 * **Native 3D Extrusion & Mesh Rendering**: Uses Luanti's built-in `visual = "wielditem"`, automatically extruding 2D inventory sprites into 3D voxel items and rendering registered node boxes and 3D meshes natively.
 * **Zero Rig Alteration**: Attached directly to the canonical `Arm_Right` bone. Syncs seamlessly with all walking, sprinting, mining, attacking, and emote animations across both `character.glb` and `character.b3d`.
+* **Dual-Format Orientation Parity**: Automatic bone coordinate space compensation ensures held weapons, tools, and blocks point forward identically in both GLB and B3D without requiring separate mod transforms or exporter patches.
 * **Server Performance (`static_save = false`)**: Child entities are never saved to mapblocks. In the event of a server shutdown or restart, entities vanish cleanly without database pollution or orphaned items.
 * **Physics & Raycast Isolation (`pointable = false`)**: Attached items never block user crosshairs, node digging, or projectile raycasts.
-* **Throttled Updates (0.2s Interval)**: Item checks are decoupled from frame step intervals. Property updates are pushed to clients only when the held item string changes.
+* **Throttled Updates (0.2s Interval)**: Item checks are decoupled from frame step intervals. Property updates are pushed to clients only when the held item string changes (instant on hotbar swap).
 * **Natural Forward Alignment & Proportionate Scale**: Calibrated with canonical forward bone orientation (`rot = {x = -90, y = 45, z = 90}`, `pos = {x = 0, y = 5.2, z = -3.5}`) and calculated dynamically from the held item's `wield_scale`, preventing oversized models, backward fin-stretching, and double-scaling.
 * **Smart Category & Group Orientations**: Includes built-in angle compensation for upright items (torches, saplings, plants at 180°), reverse-diagonal tools (shovels, screwdrivers, vessels at 135°), and nodes (compact 0.75x mini-blocks).
 * **Pivot Translation Drift Compensation**: Automatically compensates for origin expansion on elongated weapons, keeping handles firmly positioned in the palm grip.
-* **Ecosystem Compatibility**: Automatically disables legacy 2D texture compositing from `3d_armor` / `wieldview` to prevent z-fighting and duplicate items.
+* **Ecosystem Compatibility**: Companion bridge mod (`x_player_bridge`) suppresses legacy 2D texture compositing from `3d_armor` / `wieldview` to prevent z-fighting and duplicate items.
+
+### Dual-Format Position & Orientation Parity (B3D vs GLB)
+
+When switching between `character.glb` (glTF 2.0) and `character.b3d` (Blitz3D), held items attached to `Arm_Right` maintain 100% visual parity, alignment, and handle placement in the palm of the hand. Understanding why this requires automated compensation is important when working with low-level bone attachments, exporters, or custom player models:
+
+#### Root Cause of the Discrepancy
+
+1. **Master Blender Armature (`official_character.blend`)**:
+   The player rig, bone hierarchy, and bone rest matrices in the master Blender file are identical for both models. The `Arm_Right` bone's head, tail, and roll angles have not been modified.
+2. **Blitz3D Exporter (`export_b3d.py`) Matrix Inversion**:
+   The legacy Blitz3D exporter maps Blender's Z-up right-handed coordinate space into Blitz3D's Y-up left-handed space by applying a hardcoded transformation matrix on bone definitions:
+   $$\text{BONE\_TRANS\_MATRIX} = \begin{bmatrix} -1 & 0 & 0 & 0 \\ 0 & 0 & -1 & 0 \\ 0 & -1 & 0 & 0 \\ 0 & 0 & 0 & 1 \end{bmatrix}$$
+   This transformation matrix effectively introduces a 180° rotation around the X-axis for every bone relative to Blender space.
+3. **Axis & Position Inversion on `Arm_Right`**:
+   Because of this 180° X-axis flip in exported B3D files:
+   - The local orientation axes are inverted: an entity pointing forward along $+Z$ in GLB space points backward along $-Z$ in B3D without rotation compensation.
+   - The local position coordinates are reflected: in GLB, $Z_{\text{world}} = -Z_{\text{bone}}$ (so $Z_{\text{bone}} = -3.5$ maps to $Z_{\text{world}} = +3.5$), whereas in B3D, $Z_{\text{world}} = +Z_{\text{bone}}$. Without position compensation, an item with $Z = -3.5$ would be displaced 7 units backward behind the player rather than sitting forward with its handle in the palm!
+4. **glTF 2.0 (`.glb`) Exporter**:
+   Blender's official glTF 2.0 exporter preserves native Blender joint coordinate frames and applies axis conversion at the scene root node rather than inverting individual bone coordinate spaces.
+
+#### Automated Runtime Compensation in `wield.lua`
+
+Rather than altering the canonical Blitz3D exporter (which would break compatibility with existing Luanti B3D animations and third-party models), `x_player_api` handles this discrepancy dynamically at runtime in `wield.lua`. When `player_api.get_model_format()` returns `"b3d"`, it automatically applies position reflection along X and Z alongside Euler rotation compensation to the attachment parameters. This completely counteracts the B3D exporter's coordinate flip, ensuring all items (swords, tools, torches, bows, blocks) point forward and have their handles positioned squarely in the palm of the hand identically across both GLB and B3D.
+
+### B3D Rotation Wiggling Workaround (Luanti Issue #15692)
+
+In Luanti client versions prior to engine-level fixes, Irrlicht's skeletal animation matrix decomposition (`CMatrix4<T>::getScale()`) suffers from a critical bug:
+* **The Root Cause**: If a bone has a perfect 180° rotation around a cardinal axis (e.g. Y-axis: diagonal `[-1, 1, -1]`), all off-diagonal entries in the transformation matrix are exactly zero. Irrlicht's optimization falsely assumes that zero off-diagonals mean the matrix is unrotated, decomposing the bone into an **Identity rotation `(0, 0, 0)` with negative scale `(-1, 1, -1)`**. This mirrors attached wield items and shields into the wrong hand or backwards.
+* **The Hybrid Solution**:
+  1. **Mode B (Asset & Exporter Level)**: `assets/export_b3d.py` and `scripts/wiggle_b3d.py` perturb any exact 180° rotation by $\pm 10^{-3}$ radians ($< 0.05^\circ$), forcing Irrlicht to evaluate column lengths and return true Euclidean positive scale `(1, 1, 1)`. Canonical `models/character.b3d` is pre-patched on disk with zero runtime overhead.
+  2. **Mode A (Dynamic In-Memory Fallback)**: `b3d_wiggler.lua` provides a pure Lua binary chunk walker that inspects any 3rd-party B3D models at runtime (e.g. `3d_armor_character.b3d`). If unpatched perfect rotations are detected, it wiggles both `NODE` rest poses and `KEYS` animation frames in-memory without changing file sizes or dropping keyframes, registers the wiggled mesh via `core.dynamic_add_media`, and transparently points the model definition's `def.mesh` to the wiggled asset while aliasing in `x_player_api.registered_models` (preserving model identifiers and animations).
+  3. **Zero External Dependencies**: Pure Lua 5.1/LuaJIT implementation with zero mod dependencies in `mod.conf`, maintaining full backward compatibility and attributing Lars Mueller (LMD / appgurueu) and `modlib`.
+
+#### Using the Standalone CLI Tool (`scripts/wiggle_b3d.py`)
+
+A Python CLI script is included to inspect and pre-patch `.b3d` models directly on disk before packaging, testing, or deploying:
+
+```bash
+# In-place patching (modifies file directly):
+python3 scripts/wiggle_b3d.py path/to/model.b3d
+
+# Save patched model to a separate output file:
+python3 scripts/wiggle_b3d.py path/to/input.b3d path/to/output.b3d
+```
+
+##### Example Output
+```text
+Processed 'models/character.b3d':
+  - Nodes wiggled: 5
+  - Keyframes wiggled: 994
+Successfully saved to 'models/character.b3d' (216348 bytes).
+```
+
+##### Key Technical Features
+* **Preserves All Baked Animations**: Recursively walks both `NODE` (rest pose) and `KEYS` (animation frame) chunks. Unlike procedural workarounds that discard `node.keys`, all keyframe ranges (`stand`, `walk`, `mine`, etc.) remain 100% intact.
+* **Exact Byte-Length Preservation**: Re-encodes each perturbed quaternion in-place as four 32-bit little-endian IEEE-754 floats (`<4f`), preserving identical file sizes and chunk alignments.
+* **Idempotent**: Running the script on an already patched model safely detects zero buggy rotations (`Nodes wiggled: 0, Keyframes wiggled: 0`) and makes no changes.
+* **Batch Processing**: To pre-patch all `.b3d` models across a mod or models folder in one command:
+  ```bash
+  for f in $(find models/ -name "*.b3d"); do python3 scripts/wiggle_b3d.py "$f"; done
+  ```
 
 ### 3D Wield Item Customization & Extensibility
 
@@ -474,6 +762,19 @@ Any item without custom definitions or groups automatically falls back to its en
 ```ini
 # Enable 3D wielded item rendering attached to the player hand (default: true)
 x_player_api.enable_wield_item = true
+
+# Periodic throttle interval in seconds for wield item polling (default: 0.2s)
+# Note: Switching held items triggers instant updates with 0ms latency
+x_player_api.wield_update_interval = 0.2
+
+# Enable double-tapping forward key to sprint (default: true)
+x_player_api.enable_double_tap_sprint = true
+
+# Preferred global model format (default: glb, options: glb, b3d)
+x_player_api.model_format = glb
+
+# Enable pure native B3D mode (bypasses visual proxies in B3D mode, preserving native client prediction; default: false)
+x_player_api.pure_native_b3d = false
 ```
 
 Or dynamically in Lua via `player_api.set_wield_item_enabled(boolean)`.
@@ -515,9 +816,15 @@ tests/
 ├── framework.lua         # Lightweight BDD test runner and assertion library
 ├── mock_env.lua          # Mock Luanti engine environment (core.*, ItemStack, vector, Player SAO)
 └── specs/                # Modular test specifications
+    ├── b3d_wiggler_spec.lua     # In-memory B3D byte perturbation, chunk parsing, quaternion math
     ├── controls_spec.lua        # Semantic state engine, recovery, posture & airborne gating
     ├── eating_spec.lua          # Consumable registry, node/craftitem crumbs, eating action
+    ├── environment_spec.lua     # Zero-allocation liquid, ladder, and solid ground probing
+    ├── equip_sound_spec.lua     # Declarative equip sounds, item overrides, pitch variance
+    ├── legacy_b3d_spec.lua      # B3D single-timeline frame ranges, blend removal, action hold
     ├── model_spec.lua           # Format switching (GLB/B3D), B3D binary validation, aliases
+    ├── proxies_spec.lua         # Dual visual proxies, observer cohorts, bone override throttling
+    ├── pure_native_b3d_spec.lua # Zero-proxy native B3D mode & connected_players iteration
     ├── wield_entity_spec.lua    # 3D child entity lifecycle, delta updates, death/respawn
     ├── wield_offsets_spec.lua   # Attachment math, flat prefix attributes, scale normalization
     └── wield_settings_spec.lua  # Dynamic runtime settings enablement & cleanup

@@ -1,0 +1,24 @@
+root = true
+
+[*.lua]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+end_of_line = lf
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Flexible, Luanti-aligned code style rules
+quote_style = none
+trailing_table_separator = keep
+call_arg_parentheses = keep
+space_around_table_field_list = false
+space_after_comma = true
+space_around_math_operator = true
+space_around_assign_operator = true
+space_around_logical_operator = true
+space_before_inline_comment = 1
+align_continuous_assign_statement = true
+align_continuous_rect_table_field = true
+align_array_table = true
+

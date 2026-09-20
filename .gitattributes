@@ -1,0 +1,49 @@
+# Auto-detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Explicit text files
+*.lua text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.conf text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+
+# 3D models and authoring assets
+*.blend binary
+*.blend1 binary
+models/*.b3d binary
+models/*.glb binary
+models/*.gltf text eol=lf
+
+# Textures and media
+*.png binary
+*.jpg binary
+*.ogg binary
+
+# ==============================================================================
+# Git Archive / Release Exclusions (ContentDB & GitHub Releases)
+# Excludes test suites, authoring assets, dev scripts, and IDE/linter configs
+# from distributed release archives.
+# ==============================================================================
+
+# Git and developer configuration
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.editorconfig export-ignore
+/.luacheckrc export-ignore
+/.luarc.json export-ignore
+/.cdb.json export-ignore
+/.github export-ignore
+
+# Test suite and testing framework
+/test.lua export-ignore
+/tests export-ignore
+
+# Blender authoring source files and build scripts (saves ~20 MB in release zips)
+/assets export-ignore
+/render_showcase.py export-ignore
+
+# Documentation tooling and scratch files
+/scripts export-ignore
+/scratch export-ignore
