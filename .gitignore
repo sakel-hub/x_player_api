@@ -31,29 +31,19 @@ desktop.ini
 *.blend[0-9]
 
 # ==============================================================================
-# Python scripts, cache, bytecode, and virtual environments
+# Python cache, bytecode, and virtual environments
 # ==============================================================================
-*.py
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .venv/
 venv/
 ENV/
 env/
 
 # ==============================================================================
-# Tests, test suites, test coverage, and logs
+# Lua / Luanti test coverage and logs
 # ==============================================================================
-test.lua
-test_anim.lua
-test_*.lua
-*_test.lua
-*_spec.lua
-tests/
 luacov.stats.out
 luacov.report.out
 .luacov
