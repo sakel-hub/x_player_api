@@ -342,7 +342,10 @@ function x_player_api.scan_and_wiggle_b3d_model(mesh_name, full_path)
 				if out_file then
 					out_file:write(wiggled_data)
 					out_file:close()
-					engine.dynamic_add_media(out_path)
+					engine.dynamic_add_media({
+						filepath = out_path,
+						filename = target_name,
+					})
 				else
 					engine.dynamic_add_media({
 						filename = target_name,
