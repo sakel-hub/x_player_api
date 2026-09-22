@@ -591,7 +591,7 @@ function x_player_api.set_animation(player: ObjectRef, anim_name: string, speed?
 * `speed` (`number?`): Playback speed (defaults to model's animation_speed)
 * `loop_or_blend` (`(boolean|number)?`): Whether to loop playback (boolean) or transition blend time in seconds (number)
 * `override_local` (`boolean?`): Whether local client animation prediction should be overridden
-* `anim_name_b3d` (`(boolean|string)?`): Optional separate animation identifier for B3D proxy, or false to skip B3D updates
+* `anim_name_b3d` (`(boolean|string)?`): Optional animation ID for B3D proxy, or false to skip B3D
 
 #### `x_player_api.set_model`
 
@@ -1138,6 +1138,23 @@ function x_player_api.update_player_controls(player: ObjectRef, _dtime: number, 
 
 Consumable items registry, particle generators, authentic crumb/liquid particle spawning, and eating animation triggers.
 
+#### `x_player_api.cancel_eat`
+
+Cancel active eating animation, clear state, and stop particle emitters
+
+```lua
+function x_player_api.cancel_eat(player: ObjectRef)
+  -> was_eating: boolean
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `was_eating` (`boolean`): Whether player was actively eating
+
 #### `x_player_api.clear_consumable_cache`
 
 Clear internal consumable definition cache
@@ -1274,22 +1291,6 @@ function x_player_api.trigger_eat(player: ObjectRef, duration?: number, item_nam
 * `player` (`ObjectRef`): Target player
 * `duration` (`number?`): Action duration in seconds
 * `item_name` (`string?`): Consumed item name
-
-#### `x_player_api.cancel_eat`
-
-Cancel active eating animation, clear state, and stop particle emitters
-
-```lua
-function x_player_api.cancel_eat(player: ObjectRef) -> boolean
-```
-
-**Parameters:**
-
-* `player` (`ObjectRef`): Target player
-
-**Returns:**
-
-* `was_eating` (`boolean`): Whether player was actively eating
 
 ---
 
@@ -1648,40 +1649,6 @@ function x_player_api.set_pure_native_b3d(enable: boolean)
 **Parameters:**
 
 * `enable` (`boolean`): Whether to enable pure native B3D mode
-
-#### `x_player_api.start_anim_test`
-
-Start an animation showcase or single animation test for player
-
-```lua
-function x_player_api.start_anim_test(player: ObjectRef, duration?: number, specific_anim?: string)
-  -> success: boolean
-  2. error_message: string?
-```
-
-**Parameters:**
-
-* `player` (`ObjectRef`): Target player
-* `duration` (`number?`): Duration per animation in seconds (default: 4.0)
-* `specific_anim` (`string?`): Optional specific animation identifier to test
-
-**Returns:**
-
-* `success` (`boolean`): Whether test was started
-* `error_message` (`string?`): Error message on failure
-
-#### `x_player_api.stop_anim_test`
-
-Stop any active animation test showcase and restore player animations
-
-```lua
-function x_player_api.stop_anim_test(name: string, quiet?: boolean)
-```
-
-**Parameters:**
-
-* `name` (`string`): Player name
-* `quiet` (`boolean?`): Suppress user chat notification
 
 #### `x_player_api.wiggle_b3d_data`
 
