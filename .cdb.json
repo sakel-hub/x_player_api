@@ -15,5 +15,6 @@
     "media_license": "CC-BY-4.0",
     "repo": "https://github.com/sakel-hub/x_player_api",
     "issue_tracker": "https://github.com/sakel-hub/x_player_api/issues",
-    "website": "https://github.com/sakel-hub/x_player_api/blob/main/API.md"
+    "website": "https://github.com/sakel-hub/x_player_api/blob/main/API.md",
+    "content_warnings": []
 }
