@@ -8,6 +8,9 @@
 *.conf text eol=lf
 *.json text eol=lf
 *.py text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
 
 # 3D models and authoring assets
 *.blend binary
@@ -22,12 +25,26 @@ models/*.gltf text eol=lf
 *.ogg binary
 
 # ==============================================================================
+# GitHub Linguist Overrides (Keeps Repository Statistics 100% Lua)
+# ==============================================================================
+*.py linguist-generated=true
+scripts/** linguist-generated=true
+assets/** linguist-generated=true
+assets/export_b3d.py linguist-vendored=true
+package-lock.json linguist-generated=true
+
+# ==============================================================================
 # Git Archive / Release Exclusions (ContentDB & GitHub Releases)
 # Excludes test suites, authoring assets, dev scripts, and IDE/linter configs
-# from distributed release archives.
+# from distributed release archives (git archive).
 # ==============================================================================
 
-# Git and developer configuration
+# Python tooling, cache, and generated scripts
+*.py export-ignore
+__pycache__ export-ignore
+*.py[cod] export-ignore
+
+# Git, CI/CD, and developer configuration
 /.gitattributes export-ignore
 /.gitignore export-ignore
 /.editorconfig export-ignore
@@ -36,14 +53,19 @@ models/*.gltf text eol=lf
 /.cdb.json export-ignore
 /.github export-ignore
 
-# Test suite and testing framework
+# Node.js, npm, and environment files
+/package.json export-ignore
+/package-lock.json export-ignore
+/.npmrc export-ignore
+/.nvmrc export-ignore
+/.env* export-ignore
+/node_modules export-ignore
+
+# Test suites and testing framework
 /test.lua export-ignore
 /tests export-ignore
 
-# Blender authoring source files and build scripts (saves ~20 MB in release zips)
+# Blender authoring source files and conversion scripts (saves ~20 MB in release zips)
 /assets export-ignore
-/render_showcase.py export-ignore
-
-# Documentation tooling and scratch files
 /scripts export-ignore
 /scratch export-ignore
