@@ -1,0 +1,34 @@
+{
+    "name": "x_player_api",
+    "version": "1.1.3",
+    "description": "Realistic biomechanical character animations, glTF multi-track support, dual visual proxies, and drop-in replacement for player_api.",
+    "main": "init.lua",
+    "type": "module",
+    "engines": {
+        "node": ">=16.0.0",
+        "npm": ">=8.0.0"
+    },
+    "scripts": {
+        "test": "lua test.lua",
+        "lint": "luacheck .",
+        "doc": "mkdir -p doc_build && lua-language-server --doc=. --doc_out_path=doc_build --doc_format_path=scripts/doc_format.lua && cp doc_build/doc.md API.md && rm -rf doc_build",
+        "push:ci": "node ./scripts/deploy.mjs"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sakel-hub/x_player_api.git"
+    },
+    "author": "SaKeL",
+    "license": "LGPL-2.1-or-later",
+    "bugs": {
+        "url": "https://github.com/sakel-hub/x_player_api/issues"
+    },
+    "homepage": "https://github.com/sakel-hub/x_player_api#readme",
+    "devDependencies": {
+        "node-fetch": "^3.3.2",
+        "yargs": "^17.7.2"
+    },
+    "dependencies": {
+        "dotenv": "^16.4.5"
+    }
+}

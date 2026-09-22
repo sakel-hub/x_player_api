@@ -59,3 +59,15 @@ luacov.report.out
 .luacov
 *.tmp
 *.log
+logs/
+
+# ==============================================================================
+# Node.js, dependencies, and environment
+# ==============================================================================
+node_modules/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

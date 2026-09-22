@@ -3,6 +3,7 @@
 [![ContentDB](https://content.luanti.org/packages/SaKeL/x_player_api/shields/title/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
 [![ContentDB Downloads](https://content.luanti.org/packages/SaKeL/x_player_api/shields/downloads/)](https://content.luanti.org/packages/SaKeL/x_player_api/)
 ![Luanti](https://img.shields.io/badge/Luanti-5.10%2B-5599ff.svg)
+[![Luacheck](https://img.shields.io/github/actions/workflow/status/sakel-hub/x_player_api/luacheck.yml?label=Luacheck&logo=lua)](https://github.com/sakel-hub/x_player_api/actions)
 [![License: LGPL 2.1](https://img.shields.io/badge/License-LGPL_v2.1-blue.svg)](license.txt)
 [![Media License: CC-BY 4.0](https://img.shields.io/badge/Media-CC_BY_4.0-lightgrey.svg)](license.txt)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/sakel-hub/x_player_api/pulls)

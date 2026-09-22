@@ -1,0 +1,33 @@
+name: Luacheck
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  luacheck:
+    name: Run Luacheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Lua & Luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 luarocks
+          luarocks install --local luacheck
+          echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+
+      - name: Run Luacheck
+        run: |
+          export PATH="$HOME/.luarocks/bin:$PATH"
+          luacheck .
