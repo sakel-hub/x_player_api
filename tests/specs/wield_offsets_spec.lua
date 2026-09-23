@@ -271,4 +271,59 @@ describe("Wield Item Offsets and Orientations", function()
 		player_api.clear_item_cache()
 		player_api.set_model_format("glb")
 	end)
+
+	it("attaches 3D wield entity to an arbitrary entity bone with format-aware parameters", function()
+		core.registered_items["default:sword_steel"] = {
+			type = "tool",
+			wield_image = "default_tool_steelsword.png",
+		}
+		core.registered_entities["deathstats:corpse_wielditem"] = {
+			initial_properties = { visual = "wielditem" },
+		}
+
+		local mock_corpse = {
+			pos = {x = 10, y = 1, z = 10},
+			get_pos = function(self) return self.pos end,
+			is_valid = function() return true end,
+		}
+
+		-- Attach with B3D format and custom entity type
+		local went_b3d = player_api.attach_wield_item_to_entity(
+			mock_corpse,
+			"default:sword_steel",
+			"b3d",
+			"Arm_Right",
+			"deathstats:corpse_wielditem",
+			true
+		)
+
+		assert.is_not_nil(went_b3d)
+		local parent, bone, pos, rot, forced = went_b3d:get_attach()
+		assert.equal(mock_corpse, parent)
+		assert.equal("Arm_Right", bone)
+		assert.equal({x = 0, y = 4.9, z = 3.5}, pos)
+		assert.equal({x = -90, y = 225, z = 90}, rot)
+		assert.equal(true, forced)
+
+		local props = went_b3d:get_properties()
+		assert.equal("wielditem", props.visual)
+		assert.equal("default:sword_steel", props.wield_item)
+		assert.near(0.275 * 1.33, props.visual_size.x, 1e-4)
+		assert.equal(true, props.use_texture_alpha)
+		assert.equal(false, props.backface_culling)
+
+		-- Attach with GLB format
+		local went_glb = player_api.attach_wield_item_to_entity(
+			mock_corpse,
+			"default:sword_steel",
+			"glb",
+			"Arm_Right",
+			"x_player_api:wield_item"
+		)
+		assert.is_not_nil(went_glb)
+		local _, _, pos_glb, rot_glb, forced_glb = went_glb:get_attach()
+		assert.equal({x = 0, y = 4.9, z = -3.5}, pos_glb)
+		assert.equal({x = -90, y = 45, z = 90}, rot_glb)
+		assert.equal(true, forced_glb)
+	end)
 end)

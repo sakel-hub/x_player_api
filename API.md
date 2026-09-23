@@ -1315,6 +1315,28 @@ function x_player_api.attach_wield_item(player: ObjectRef)
 
 * `entity` (`ObjectRef|nil`): Attached entity reference or nil
 
+#### `x_player_api.attach_wield_item_to_entity`
+
+Attach or spawn a 3D wield item entity to an arbitrary entity bone (corpses, mobs, visual proxies)
+
+```lua
+function x_player_api.attach_wield_item_to_entity(parent: ObjectRef, item_or_stack: string|ItemStack, format_override?: string, bone?: string, entity_name?: string, forced_visible?: boolean)
+  -> wield_ent: ObjectRef|nil
+```
+
+**Parameters:**
+
+* `parent` (`ObjectRef`): Target parent object to attach to
+* `item_or_stack` (`string|ItemStack`): Held item name or ItemStack
+* `format_override` (`string?`): Model format ("glb" or "b3d", defaults to active format or "b3d")
+* `bone` (`string?`): Target bone name (defaults to "Arm_Right")
+* `entity_name` (`string?`): Registered entity name (defaults to "x_player_api:wield_item")
+* `forced_visible` (`boolean?`): Visibility override (true for standalone entities, false for player proxies)
+
+**Returns:**
+
+* `wield_ent` (`ObjectRef|nil`): The spawned and attached entity or nil
+
 #### `x_player_api.clear_wield_params_cache`
 
 Clear internal wield attachment parameter cache
@@ -1649,6 +1671,40 @@ function x_player_api.set_pure_native_b3d(enable: boolean)
 **Parameters:**
 
 * `enable` (`boolean`): Whether to enable pure native B3D mode
+
+#### `x_player_api.start_anim_test`
+
+Start an animation showcase or single animation test for player
+
+```lua
+function x_player_api.start_anim_test(player: ObjectRef, duration?: number, specific_anim?: string)
+  -> success: boolean
+  2. error_message: string?
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `duration` (`number?`): Duration per animation in seconds (default: 4.0)
+* `specific_anim` (`string?`): Optional specific animation identifier to test
+
+**Returns:**
+
+* `success` (`boolean`): Whether test was started
+* `error_message` (`string?`): Error message on failure
+
+#### `x_player_api.stop_anim_test`
+
+Stop any active animation test showcase and restore player animations
+
+```lua
+function x_player_api.stop_anim_test(name: string, quiet?: boolean)
+```
+
+**Parameters:**
+
+* `name` (`string`): Player name
+* `quiet` (`boolean?`): Suppress user chat notification
 
 #### `x_player_api.wiggle_b3d_data`
 
