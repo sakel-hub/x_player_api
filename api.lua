@@ -300,14 +300,15 @@ function x_player_api.set_model(player, model_name)
 			if is_pure_b3d and exp_mesh_b3d then
 				local pprops = player:get_properties()
 				if not pprops or pprops.mesh ~= exp_mesh_b3d or (pprops.visual_size and pprops.visual_size.x == 0)
-					or pprops.use_texture_alpha == true then
+					or pprops.use_texture_alpha == true or pprops.is_visible == false then
 					needs_healing = true
 				end
 			elseif current_proxies then
 				if current_proxies.glb and current_proxies.glb:is_valid() then
 					local props = current_proxies.glb:get_properties()
 					if exp_mesh_glb then
-						if props and (props.mesh ~= exp_mesh_glb or (props.visual_size and props.visual_size.x == 0)) then
+						if props and (props.mesh ~= exp_mesh_glb or (props.visual_size and props.visual_size.x == 0)
+							or props.is_visible == false) then
 							needs_healing = true
 						end
 					else
@@ -319,7 +320,8 @@ function x_player_api.set_model(player, model_name)
 				if current_proxies.b3d and current_proxies.b3d:is_valid() then
 					local props = current_proxies.b3d:get_properties()
 					if exp_mesh_b3d then
-						if props and (props.mesh ~= exp_mesh_b3d or (props.visual_size and props.visual_size.x == 0)) then
+						if props and (props.mesh ~= exp_mesh_b3d or (props.visual_size and props.visual_size.x == 0)
+							or props.is_visible == false) then
 							needs_healing = true
 						end
 					else
@@ -374,6 +376,7 @@ function x_player_api.set_model(player, model_name)
 				stepheight = model.stepheight,
 				eye_height = model.eye_height,
 				use_texture_alpha = false,
+				is_visible = true,
 			})
 			if proxies.glb and proxies.glb:is_valid() then
 				proxies.glb:set_properties({visual_size = {x = 0, y = 0}, textures = {"blank.png"}})
@@ -394,6 +397,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_glb,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					is_visible = true,
 				})
 			elseif proxies.glb and proxies.glb:is_valid() then
 				proxies.glb:set_properties({
@@ -407,6 +411,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_b3d,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					is_visible = true,
 				})
 			elseif proxies.b3d and proxies.b3d:is_valid() then
 				proxies.b3d:set_properties({

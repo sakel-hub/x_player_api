@@ -109,6 +109,15 @@ function x_player_api.wrap_player_metatable(player)
 							end
 						end
 					end
+					-- Forward is_visible to visual proxies if specified
+					if props.is_visible ~= nil then
+						if proxies.glb and proxies.glb:is_valid() then
+							proxies.glb:set_properties({ is_visible = props.is_visible })
+						end
+						if proxies.b3d and proxies.b3d:is_valid() then
+							proxies.b3d:set_properties({ is_visible = props.is_visible })
+						end
+					end
 					-- Forward visual_size to visual proxies if non-zero
 					if props.visual_size and (props.visual_size.x ~= 0 or props.visual_size.y ~= 0) then
 						if proxies.glb and proxies.glb:is_valid() then

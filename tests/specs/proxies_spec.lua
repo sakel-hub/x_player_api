@@ -239,6 +239,29 @@ describe("Visual Proxies & Observer Cohorts", function()
 		assert.equal(1, b3d_props.visual_size.x)
 	end)
 
+	it("forwards is_visible to visual proxies and self-heals in set_model", function()
+		local proxies = x_player_api.get_visual_proxies(player)
+		assert.is_not_nil(proxies)
+
+		-- Hide player via player:set_properties
+		player:set_properties({ is_visible = false })
+		assert.is_false(proxies.glb:get_properties().is_visible)
+		assert.is_false(proxies.b3d:get_properties().is_visible)
+
+		-- Show player via player:set_properties
+		player:set_properties({ is_visible = true })
+		assert.is_true(proxies.glb:get_properties().is_visible)
+		assert.is_true(proxies.b3d:get_properties().is_visible)
+
+		-- Simulate external mod directly setting is_visible = false on active proxy
+		proxies.glb:set_properties({ is_visible = false })
+		assert.is_false(proxies.glb:get_properties().is_visible)
+
+		-- set_model with current model must trigger self-healing and restore is_visible = true
+		x_player_api.set_model(player, x_player_api.get_model_name(player))
+		assert.is_true(proxies.glb:get_properties().is_visible)
+	end)
+
 	it("does not overwrite proxy textures when player:set_properties is passed blank textures", function()
 		local proxies = x_player_api.get_visual_proxies(player)
 		assert.is_not_nil(proxies)
