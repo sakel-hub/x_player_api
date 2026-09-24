@@ -660,3 +660,8 @@ core.register_on_item_eat(function(...)
 		x_player_api.trigger_eat(user, nil, iname)
 	end
 end)
+
+-- Cancel eating cleanly on player death
+core.register_on_dieplayer(function(player)
+	x_player_api.cancel_eat(player)
+end)

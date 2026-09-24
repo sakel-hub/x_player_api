@@ -567,4 +567,23 @@ describe("Eating & Consumables System", function()
 		-- Repeated cancel returns false when not eating
 		assert.is_false(player_api.cancel_eat(player))
 	end)
+
+	it("cancels active eating automatically upon player death", function()
+		core.registered_items["default:apple"] = {type = "craftitem", groups = {food = 1}}
+		player:set_wielded_item("default:apple", 1)
+		player_api.clear_item_cache()
+		player_api.trigger_eat(player, 1.34, "default:apple")
+
+		local pstate = player_api.controls.player_states[player:get_player_name()]
+		assert.is_true(pstate.eat_until > 0)
+
+		-- Trigger death callback
+		for _, cb in ipairs(core._on_dieplayers) do
+			cb(player)
+		end
+
+		local state = player_api.get_player_state(player)
+		assert.is_false(state.eating)
+		assert.equal(0, pstate.eat_until)
+	end)
 end)
