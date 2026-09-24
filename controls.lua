@@ -135,6 +135,8 @@ local enable_double_tap_sprint = core.settings:get_bool("x_player_api.enable_dou
 local DOUBLE_TAP_TIME = 0.28
 -- Slide duration (in seconds)
 local SLIDE_DURATION = 0.8
+-- Single-click action duration (matching 10-frame actions @ 30 FPS = 0.333s)
+local ACTION_DURATION = 0.33
 
 ---@type table
 local scratch_eval_ctx = {}
@@ -407,10 +409,53 @@ core.register_on_leaveplayer(function(player)
 	states[name] = nil
 end)
 
--- Cancel active test animation on player death
+---Reset transient action timestamps and flags on player death or respawn
+---@param name string Player name
+local function reset_transient_controls_state(name)
+	local pstate = states[name]
+	if not pstate then return end
+	pstate.double_tap_sprint = false
+	pstate.sliding_until = 0
+	pstate.bow_shoot_until = 0
+	pstate.hurt_until = 0
+	pstate.lmb_action_until = 0
+	pstate.lmb_action = nil
+	pstate.lmb_cycle_count = 0
+	pstate.eat_until = 0
+	pstate.last_chew_particle_time = 0
+	pstate.equip_until = 0
+	pstate.was_jumping = false
+	pstate.prev_bow_charged = false
+	pstate.active_emote = nil
+	pstate.emote_until = 0
+	pstate.prev_action_state = nil
+	if pstate.semantic_state then
+		pstate.semantic_state.acting = false
+		pstate.semantic_state.blocking = false
+		pstate.semantic_state.eating = false
+		pstate.semantic_state.aiming_bow = false
+		pstate.semantic_state.shooting_bow = false
+		pstate.semantic_state.hurt = false
+		pstate.semantic_state.equipping = false
+		pstate.semantic_state.sliding = false
+		pstate.semantic_state.action = nil
+		pstate.semantic_state.emote = nil
+	end
+end
+
+x_player_api.reset_transient_controls_state = reset_transient_controls_state
+
+-- Cancel active test animation and reset transient action states on player death
 core.register_on_dieplayer(function(player)
 	local name = player:get_player_name()
 	x_player_api.stop_anim_test(name, true)
+	reset_transient_controls_state(name)
+end)
+
+-- Clean up transient states on respawn
+core.register_on_respawnplayer(function(player)
+	local name = player:get_player_name()
+	reset_transient_controls_state(name)
 end)
 
 ---Trigger bow shoot animation externally
@@ -535,7 +580,7 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 		local act = item_info.weapon_action or "mine"
 		if pstate.lmb_action ~= act or (pstate.lmb_action_until or 0) <= time_now then
 			pstate.lmb_action = act
-			pstate.lmb_action_until = time_now + 0.45
+			pstate.lmb_action_until = time_now + ACTION_DURATION
 			pstate.lmb_cycle_count = (pstate.lmb_cycle_count or 0) + 1
 		end
 	elseif is_rmb and not is_blocking and not is_aiming_bow and not item_info.is_food then
@@ -543,7 +588,7 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 		local act = item_info.alt_action or "mine"
 		if pstate.lmb_action ~= act or (pstate.lmb_action_until or 0) <= time_now then
 			pstate.lmb_action = act
-			pstate.lmb_action_until = time_now + 0.45
+			pstate.lmb_action_until = time_now + ACTION_DURATION
 			pstate.lmb_cycle_count = (pstate.lmb_cycle_count or 0) + 1
 		end
 	end
@@ -1150,8 +1195,8 @@ core.register_chatcommand("toggle_model", {
 
 ---Trigger an explicit action duration window on a player (for combat hits, mining, swings)
 ---@param player ObjectRef Target player
----@param action_override? string Optional explicit action name (e.g. "mine", "attack_slash")
----@param duration? number Optional duration in seconds (defaults to 0.45s)
+---@param action? string Optional explicit action name (e.g. "mine", "attack_slash")
+---@param duration? number Optional duration in seconds (defaults to ACTION_DURATION)
 function x_player_api.trigger_player_action(player, action, duration)
 	if not player or not player:is_player() then return end
 	local name = player:get_player_name()
@@ -1167,9 +1212,18 @@ function x_player_api.trigger_player_action(player, action, duration)
 		act = item_info.weapon_action or "mine"
 	end
 
+	local dur = duration or ACTION_DURATION
+	-- If the exact same action is already active and currently in-flight
+	-- (e.g. punch contact callback arriving ~30-100ms after LMB click),
+	-- avoid redundant cycle increments that restart the swing mid-motion.
+	local is_same_active = (pstate.lmb_action == act) and
+		(pstate.lmb_action_until and (pstate.lmb_action_until - time_now) > 0.05)
+
 	pstate.lmb_action = act
-	pstate.lmb_action_until = time_now + (duration or 0.45)
-	pstate.lmb_cycle_count = (pstate.lmb_cycle_count or 0) + 1
+	pstate.lmb_action_until = math.max(pstate.lmb_action_until or 0, time_now + dur)
+	if not is_same_active then
+		pstate.lmb_cycle_count = (pstate.lmb_cycle_count or 0) + 1
+	end
 end
 
 core.register_on_punchnode(function(...)
@@ -1189,6 +1243,6 @@ end)
 core.register_on_placenode(function(...)
 	local placer = select(3, ...)
 	if placer and placer:is_player() then
-		x_player_api.trigger_player_action(placer, "mine", 0.45)
+		x_player_api.trigger_player_action(placer, "mine", ACTION_DURATION)
 	end
 end)

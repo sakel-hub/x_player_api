@@ -1260,12 +1260,98 @@ describe("Controls & Semantic State Engine", function()
 		local state = player_api.get_player_state(player)
 		assert.equal("attack_slash", state.action)
 
-		-- Advance past duration window (0.45s)
+		-- Advance past duration window (0.33s)
 		core._mock_us_time = core._mock_us_time + 500000
 		pstate.equip_until = 0
 		player_api.globalstep(0.50)
 		state = player_api.get_player_state(player)
 		assert.is_nil(state.action)
+	end)
+
+	it("debounces hit contact events during in-flight swing and preserves continuous cycles on hold", function()
+		player_api.set_model(player, "character.b3d")
+		player:set_wielded_item("default:sword_steel")
+		player_api.globalstep(0.05)
+		local pstate = player_api.controls.player_states[player:get_player_name()]
+		pstate.equip_until = 0
+		pstate.lmb_action_until = 0
+		pstate.lmb_cycle_count = 0
+
+		-- 1. Click LMB once (tap)
+		player.get_player_control = function() return {LMB = true} end
+		player_api.globalstep(0.05)
+		assert.equal("attack_slash", pstate.lmb_action)
+		assert.equal(1, pstate.lmb_cycle_count)
+
+		-- Release LMB immediately (tap)
+		player.get_player_control = function() return {} end
+
+		-- 2. Punch contact registers 50ms later (e.g. hitting node or mob)
+		core._mock_us_time = core._mock_us_time + 50000
+		player_api.trigger_player_action(player)
+		-- Must NOT increment cycle count or restart in-flight swing
+		assert.equal(1, pstate.lmb_cycle_count)
+
+		-- 3. After 0.35s (single swing completes), action expires cleanly without 2nd swing
+		core._mock_us_time = core._mock_us_time + 350000
+		player_api.globalstep(0.35)
+		local state = player_api.get_player_state(player)
+		assert.is_nil(state.action)
+
+		-- 4. Hold LMB down: must continuously cycle every ~0.33s
+		player.get_player_control = function() return {LMB = true} end
+		local initial_cycles = pstate.lmb_cycle_count
+		for _ = 1, 20 do
+			core._mock_us_time = core._mock_us_time + 50000
+			player_api.globalstep(0.05)
+		end
+		-- In 1.0 second with 0.33s cycle duration, must have progressed at least 3 attack cycles
+		assert.is_true(pstate.lmb_cycle_count >= initial_cycles + 3)
+	end)
+
+	it("resets transient action states and semantic flags on die and respawn", function()
+		local name = player:get_player_name()
+		local pstate = player_api.controls.player_states[name]
+		assert.is_not_nil(pstate)
+
+		-- Set up active transient actions
+		pstate.double_tap_sprint = true
+		pstate.sliding_until = 999999
+		pstate.bow_shoot_until = 999999
+		pstate.hurt_until = 999999
+		pstate.lmb_action_until = 999999
+		pstate.lmb_action = "attack_slash"
+		pstate.eat_until = 999999
+		pstate.active_emote = "wave"
+		pstate.semantic_state.acting = true
+		pstate.semantic_state.sliding = true
+		pstate.semantic_state.hurt = true
+
+		-- Trigger death callbacks
+		for _, cb in ipairs(core._on_dieplayers) do
+			cb(player)
+		end
+
+		assert.is_false(pstate.double_tap_sprint)
+		assert.equal(0, pstate.sliding_until)
+		assert.equal(0, pstate.bow_shoot_until)
+		assert.equal(0, pstate.hurt_until)
+		assert.equal(0, pstate.lmb_action_until)
+		assert.is_nil(pstate.lmb_action)
+		assert.equal(0, pstate.eat_until)
+		assert.is_nil(pstate.active_emote)
+		assert.is_false(pstate.semantic_state.acting)
+		assert.is_false(pstate.semantic_state.sliding)
+		assert.is_false(pstate.semantic_state.hurt)
+
+		-- Set transient state again and verify respawn reset
+		pstate.sliding_until = 999999
+		pstate.hurt_until = 999999
+		for _, cb in ipairs(core._on_respawnplayers) do
+			cb(player)
+		end
+		assert.equal(0, pstate.sliding_until)
+		assert.equal(0, pstate.hurt_until)
 	end)
 end)
 
