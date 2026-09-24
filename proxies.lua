@@ -29,7 +29,18 @@ core.register_entity("x_player_api:visual_glb", {
 		self.object:set_armor_groups({immortal = 1})
 	end,
 	on_punch = function() return true end,
-	-- No on_step, LuaJIT friendly
+	on_step = function(self, dtime)
+		self._watchdog_timer = (self._watchdog_timer or 0) + (dtime or 0.1)
+		if self._watchdog_timer < 1.0 then
+			return
+		end
+		self._watchdog_timer = 0
+		local obj = self.object
+		local parent = obj and obj:get_attach()
+		if not parent or not parent:is_valid() or (parent.is_player and not parent:is_player()) then
+			obj:remove()
+		end
+	end,
 })
 
 -- B3D Visual Proxy
@@ -51,6 +62,18 @@ core.register_entity("x_player_api:visual_b3d", {
 		self.object:set_armor_groups({immortal = 1})
 	end,
 	on_punch = function() return true end,
+	on_step = function(self, dtime)
+		self._watchdog_timer = (self._watchdog_timer or 0) + (dtime or 0.1)
+		if self._watchdog_timer < 1.0 then
+			return
+		end
+		self._watchdog_timer = 0
+		local obj = self.object
+		local parent = obj and obj:get_attach()
+		if not parent or not parent:is_valid() or (parent.is_player and not parent:is_player()) then
+			obj:remove()
+		end
+	end,
 })
 
 local wrapped_metatables = {}
@@ -170,18 +193,16 @@ local function setup_player_proxies(player)
 	if not player or not player:is_player() then return end
 	local name = player:get_player_name()
 
-	-- If proxies already exist and are valid, reuse them
+	-- Only reuse proxies if both entities exist, are valid, and are actively attached to THIS player
 	local existing = x_player_api.active_proxies[name]
-	if existing and existing.glb and existing.glb:is_valid()
-		and existing.b3d and existing.b3d:is_valid() then
-		return existing
-	end
-
-	x_player_api.wrap_player_metatable(player)
-	local pos = player:get_pos()
-
-	-- Clean up any pre-existing or invalid proxy entities for this player name
 	if existing then
+		local glb_attached = existing.glb and existing.glb:is_valid() and existing.glb:get_attach() == player
+		local b3d_attached = existing.b3d and existing.b3d:is_valid() and existing.b3d:get_attach() == player
+		if glb_attached and b3d_attached then
+			return existing
+		end
+
+		-- Existing proxies belong to an earlier session or are detached: remove them
 		if existing.glb and existing.glb:is_valid() then
 			existing.glb:set_detach()
 			existing.glb:remove()
@@ -193,7 +214,10 @@ local function setup_player_proxies(player)
 		x_player_api.active_proxies[name] = nil
 	end
 
-	-- Also sweep engine children directly on player to prevent untracked duplicate proxy attachments
+	x_player_api.wrap_player_metatable(player)
+	local pos = player:get_pos()
+
+	-- Sweep engine children directly on player to prevent duplicate proxy attachments
 	if player.get_children then
 		local children = player:get_children()
 		if children then
@@ -210,8 +234,28 @@ local function setup_player_proxies(player)
 		end
 	end
 
-	-- Classify client cohort immediately so observer sets are populated before proxy creation
-	x_player_api.ensure_player_cohort(name)
+	-- Sweep any unattached or orphaned proxy entities in the immediate area
+	if core.get_objects_inside_radius and pos then
+		local nearby = core.get_objects_inside_radius(pos, 5)
+		if nearby then
+			for i = 1, #nearby do
+				local obj = nearby[i]
+				if obj and obj:is_valid() and not obj:is_player() then
+					local ent = obj:get_luaentity()
+					if ent and (ent.name == "x_player_api:visual_glb" or ent.name == "x_player_api:visual_b3d") then
+						local parent = obj:get_attach()
+						if not parent or not parent:is_valid() or not parent:is_player() then
+							obj:set_detach()
+							obj:remove()
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Force cohort re-classification immediately so observer sets are populated before proxy creation
+	x_player_api.ensure_player_cohort(name, true)
 
 	local is_pure_b3d = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
 	if is_pure_b3d then
@@ -463,6 +507,30 @@ local function on_respawn_player_proxies(player)
 		end
 		if proxies.b3d:get_attach() ~= player then
 			proxies.b3d:set_attach(player, "", {x=0, y=0, z=0}, {x=0, y=0, z=0})
+		end
+		local pdata = x_player_api.get_animation(player)
+		local model_name = (pdata and pdata.model) or x_player_api.get_model_name(player)
+		local model = x_player_api.get_model(model_name)
+		local cur_fmt = (x_player_api.get_model_format and x_player_api.get_model_format()) or "both"
+		local p_vsize = (model and model.visual_size) or {x = 1, y = 1}
+		if proxies.glb then
+			local glb_vs = (cur_fmt == "b3d") and {x = 0, y = 0} or p_vsize
+			proxies.glb:set_properties({
+				is_visible = true,
+				visual_size = glb_vs,
+				pointable = false,
+			})
+		end
+		if proxies.b3d then
+			local b3d_vs = (cur_fmt == "glb") and {x = 0, y = 0} or p_vsize
+			proxies.b3d:set_properties({
+				is_visible = true,
+				visual_size = b3d_vs,
+				pointable = false,
+			})
+		end
+		if x_player_api.refresh_observers then
+			x_player_api.refresh_observers(player)
 		end
 	end
 end

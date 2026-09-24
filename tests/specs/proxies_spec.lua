@@ -376,5 +376,80 @@ describe("Visual Proxies & Observer Cohorts", function()
 
 		mock_env.leave_player(test_player)
 	end)
+
+	it("safely purges stale detached proxies on reconnect and binds new proxies to fresh player object", function()
+		local p1 = mock_env.join_player("Reconnector")
+		local old_proxies = x_player_api.get_visual_proxies(p1)
+		assert.is_not_nil(old_proxies)
+
+		-- Simulate abrupt disconnect: bypass normal leave callbacks and destroy parent
+		for i = #core._connected_players, 1, -1 do
+			if core._connected_players[i] == p1 then
+				table.remove(core._connected_players, i)
+			end
+		end
+		-- Old proxies remain in active_proxies table but detached
+		old_proxies.glb:set_detach()
+		old_proxies.b3d:set_detach()
+
+		-- Player reconnects
+		local p2 = mock_env.join_player("Reconnector")
+		local new_proxies = x_player_api.get_visual_proxies(p2)
+
+		-- Old detached proxies must have been removed
+		assert.is_true(old_proxies.glb._removed)
+		assert.is_true(old_proxies.b3d._removed)
+
+		-- New proxies must be attached to the new player object
+		local parent_glb, _, _, _ = new_proxies.glb:get_attach()
+		assert.equal(p2, parent_glb)
+		local parent_b3d, _, _, _ = new_proxies.b3d:get_attach()
+		assert.equal(p2, parent_b3d)
+
+		mock_env.leave_player(p2)
+	end)
+
+	it("watchdog automatically removes orphaned proxy entity when parent player is destroyed", function()
+		local entity_def = core.registered_entities["x_player_api:visual_glb"]
+		assert.is_not_nil(entity_def)
+		assert.is_not_nil(entity_def.on_step)
+
+		local mock_obj = core.add_entity({x=0, y=0, z=0}, "x_player_api:visual_glb")
+		assert.is_not_nil(mock_obj)
+		local ent_self = mock_obj:get_luaentity() or {
+			object = mock_obj,
+			name = "x_player_api:visual_glb",
+		}
+		ent_self.object = mock_obj
+
+		-- Step timer below 1.0 does not trigger
+		entity_def.on_step(ent_self, 0.5)
+		assert.is_false(mock_obj._removed == true)
+
+		-- Step timer reaching 1.0 triggers watchdog without parent attachment -> removed
+		entity_def.on_step(ent_self, 0.6)
+		assert.is_true(mock_obj._removed)
+	end)
+
+	it("unhides proxies, restores visual size and refreshes observers on respawn", function()
+		local proxies = x_player_api.get_visual_proxies(player)
+		assert.is_not_nil(proxies)
+
+		-- Simulate death sequence hiding proxies
+		proxies.glb:set_properties({ is_visible = false, visual_size = { x = 0, y = 0 } })
+		proxies.b3d:set_properties({ is_visible = false, visual_size = { x = 0, y = 0 } })
+
+		-- Trigger respawn
+		for _, cb in ipairs(core._on_respawnplayers) do
+			cb(player)
+		end
+
+		local glb_props = proxies.glb:get_properties()
+		local b3d_props = proxies.b3d:get_properties()
+		assert.is_true(glb_props.is_visible)
+		assert.is_true(b3d_props.is_visible)
+		assert.equal(1, glb_props.visual_size.x)
+		assert.equal(1, b3d_props.visual_size.x)
+	end)
 end)
 
