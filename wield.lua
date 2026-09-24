@@ -619,7 +619,10 @@ function x_player_api.attach_wield_item_to_entity(
 	local is_empty = (item_name == "")
 		or (type(item_or_stack) == "userdata" and item_or_stack.is_empty and item_or_stack:is_empty())
 	local is_vis = not is_empty
-	local force_vis = (forced_visible ~= nil) and forced_visible or true
+	local force_vis = true
+	if forced_visible ~= nil then
+		force_vis = forced_visible
+	end
 
 	local props = {
 		visual = "wielditem",
