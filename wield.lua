@@ -481,18 +481,6 @@ core.register_entity("x_player_api:wield_item", {
 		local object = self.object
 		object:set_armor_groups({immortal = 1})
 	end,
-	on_step = function(self, dtime)
-		self._timer = (self._timer or 0) + (dtime or 0.1)
-		if self._timer < 1.0 then
-			return
-		end
-		self._timer = 0
-		local object = self.object
-		local parent = object:get_attach()
-		if not parent or not parent:is_valid() or (parent.get_pos and not parent:get_pos()) then
-			object:remove()
-		end
-	end,
 })
 
 ---Get the active wield item entity ObjectRef for a player

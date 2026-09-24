@@ -29,18 +29,6 @@ core.register_entity("x_player_api:visual_glb", {
 		self.object:set_armor_groups({immortal = 1})
 	end,
 	on_punch = function() return true end,
-	on_step = function(self, dtime)
-		self._watchdog_timer = (self._watchdog_timer or 0) + (dtime or 0.1)
-		if self._watchdog_timer < 1.0 then
-			return
-		end
-		self._watchdog_timer = 0
-		local obj = self.object
-		local parent = obj and obj:get_attach()
-		if not parent or not parent:is_valid() or (parent.is_player and not parent:is_player()) then
-			obj:remove()
-		end
-	end,
 })
 
 -- B3D Visual Proxy
@@ -62,18 +50,6 @@ core.register_entity("x_player_api:visual_b3d", {
 		self.object:set_armor_groups({immortal = 1})
 	end,
 	on_punch = function() return true end,
-	on_step = function(self, dtime)
-		self._watchdog_timer = (self._watchdog_timer or 0) + (dtime or 0.1)
-		if self._watchdog_timer < 1.0 then
-			return
-		end
-		self._watchdog_timer = 0
-		local obj = self.object
-		local parent = obj and obj:get_attach()
-		if not parent or not parent:is_valid() or (parent.is_player and not parent:is_player()) then
-			obj:remove()
-		end
-	end,
 })
 
 local wrapped_metatables = {}

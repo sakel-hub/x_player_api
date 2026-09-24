@@ -28,13 +28,10 @@ describe("Wield Item Entity Lifecycle & Properties", function()
 		assert.equal({immortal = 1}, obj._armor_groups)
 	end)
 
-	it("removes self during step if unattached", function()
+	it("omits on_step to prevent engine per-step overhead", function()
 		local ent_def = core.registered_entities["x_player_api:wield_item"]
-		local obj = core.add_entity({x = 0, y = 0, z = 0}, "x_player_api:wield_item")
-		local luaent = obj:get_luaentity()
-		luaent.timer = 0
-		ent_def.on_step(luaent, 1.1)
-		assert.is_true(obj._removed, "Unattached entity must remove self during on_step")
+		assert.is_not_nil(ent_def)
+		assert.is_nil(ent_def.on_step, "wield_item entity must omit on_step to prevent per-tick engine overhead")
 	end)
 
 	it("manages join lifecycle with 0.5s attachment delay", function()

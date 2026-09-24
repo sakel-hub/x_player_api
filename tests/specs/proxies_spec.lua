@@ -481,26 +481,13 @@ describe("Visual Proxies & Observer Cohorts", function()
 		mock_env.leave_player(p2)
 	end)
 
-	it("watchdog automatically removes orphaned proxy entity when parent player is destroyed", function()
-		local entity_def = core.registered_entities["x_player_api:visual_glb"]
-		assert.is_not_nil(entity_def)
-		assert.is_not_nil(entity_def.on_step)
-
-		local mock_obj = core.add_entity({x=0, y=0, z=0}, "x_player_api:visual_glb")
-		assert.is_not_nil(mock_obj)
-		local ent_self = mock_obj:get_luaentity() or {
-			object = mock_obj,
-			name = "x_player_api:visual_glb",
-		}
-		ent_self.object = mock_obj
-
-		-- Step timer below 1.0 does not trigger
-		entity_def.on_step(ent_self, 0.5)
-		assert.is_false(mock_obj._removed == true)
-
-		-- Step timer reaching 1.0 triggers watchdog without parent attachment -> removed
-		entity_def.on_step(ent_self, 0.6)
-		assert.is_true(mock_obj._removed)
+	it("omits on_step to prevent engine per-step overhead on passive visual proxies", function()
+		local glb_def = core.registered_entities["x_player_api:visual_glb"]
+		local b3d_def = core.registered_entities["x_player_api:visual_b3d"]
+		assert.is_not_nil(glb_def)
+		assert.is_not_nil(b3d_def)
+		assert.is_nil(glb_def.on_step, "visual_glb must omit on_step to prevent per-tick engine overhead")
+		assert.is_nil(b3d_def.on_step, "visual_b3d must omit on_step to prevent per-tick engine overhead")
 	end)
 
 	it("unhides proxies, restores visual size and refreshes observers on respawn", function()
