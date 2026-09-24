@@ -114,7 +114,26 @@ local function get_player_data(player)
 	end
 	return data
 end
-x_player_api.get_player_data = get_player_data
+
+---Check if two 6-element collisionbox bounding boxes are coordinate-equal
+---@nodiscard
+---@param collisionbox number[]|nil First collisionbox {minx, miny, minz, maxx, maxy, maxz}
+---@param other_collisionbox number[]|nil Second collisionbox
+---@return boolean equals True if both collisionboxes have identical coordinates
+local function collisionbox_equals(collisionbox, other_collisionbox)
+	if collisionbox == other_collisionbox then
+		return true
+	end
+	if not collisionbox or not other_collisionbox then
+		return false
+	end
+	for index = 1, 6 do
+		if collisionbox[index] ~= other_collisionbox[index] then
+			return false
+		end
+	end
+	return true
+end
 
 ---Determine the texture filename or modifier string for an item
 ---@nodiscard
@@ -181,7 +200,15 @@ end
 -- Configuration methods
 ---@type "glb"|"b3d" Currently active player model format preference
 local cfg_format = core.settings:get("x_player_api.model_format")
-x_player_api.model_format = (cfg_format == "b3d" or cfg_format == "glb") and cfg_format or "glb"
+local server_ver = core.get_version and core.get_version()
+local server_supports_multitrack = true
+if server_ver and server_ver.major and server_ver.minor then
+	server_supports_multitrack = (server_ver.major > 5) or (server_ver.major == 5 and server_ver.minor >= 17)
+elseif core.protocol_versions and not core.protocol_versions["5.17.0"] then
+	server_supports_multitrack = false
+end
+local default_format = server_supports_multitrack and "glb" or "b3d"
+x_player_api.model_format = (cfg_format == "b3d" or cfg_format == "glb") and cfg_format or default_format
 
 ---@type boolean Whether pure native B3D rendering is enabled (bypassing visual proxies in B3D mode)
 x_player_api.pure_native_b3d = core.settings:get_bool("x_player_api.pure_native_b3d", false)
@@ -333,6 +360,20 @@ function x_player_api.set_model(player, model_name)
 			end
 		end
 		if not needs_healing then
+			if current_proxies and active_format ~= "b3d" and current_model then
+				local exp_mesh_glb = current_model.mesh_glb
+					or (current_model.mesh and current_model.mesh:match("%.glb$") and current_model.mesh)
+				local exp_mesh_b3d = (current_model.mesh and not current_model.mesh:match("%.glb$")
+					and current_model.mesh) or current_model.mesh_b3d
+				if exp_mesh_glb and exp_mesh_b3d then
+					if current_proxies.glb and current_proxies.glb:is_valid() then
+						current_proxies.glb:set_observers(x_player_api.get_modern_observers())
+					end
+					if current_proxies.b3d and current_proxies.b3d:is_valid() then
+						current_proxies.b3d:set_observers(x_player_api.get_legacy_observers())
+					end
+				end
+			end
 			return
 		end
 	end
@@ -348,7 +389,10 @@ function x_player_api.set_model(player, model_name)
 	local proxies = current_proxies
 
 	if model and proxies then
-		player:stop_animation()
+		-- glTF multi-track models: stop active named tracks before switching
+		if proxies.glb and proxies.glb:is_valid() and proxies.glb.stop_animation then
+			proxies.glb:stop_animation()
+		end
 
 		local textures = player_data.textures or model.textures or {"character.png"}
 		if model.textures and #model.textures > #textures then
@@ -378,6 +422,8 @@ function x_player_api.set_model(player, model_name)
 				use_texture_alpha = false,
 				is_visible = true,
 			})
+			player_data.collisionbox = model.collisionbox
+			player_data.eye_height = model.eye_height
 			if proxies.glb and proxies.glb:is_valid() then
 				proxies.glb:set_properties({visual_size = {x = 0, y = 0}, textures = {"blank.png"}})
 			end
@@ -476,6 +522,8 @@ function x_player_api.set_model(player, model_name)
 				stepheight = model.stepheight,
 				eye_height = model.eye_height,
 			})
+			player_data.collisionbox = model.collisionbox
+			player_data.eye_height = model.eye_height
 
 			-- Silence client-side local animation prediction on the invisible native player entity
 			player:set_local_animation(ZERO_RANGE, ZERO_RANGE, ZERO_RANGE, ZERO_RANGE, 0)
@@ -498,6 +546,8 @@ function x_player_api.set_model(player, model_name)
 			stepheight = 0.6,
 			eye_height = 1.625,
 		})
+		player_data.collisionbox = {-0.3, 0.0, -0.3, 0.3, 1.75, 0.3}
+		player_data.eye_height = 1.625
 		x_player_api.set_wield_item_visibility(player, false)
 	end
 end
@@ -818,10 +868,16 @@ function x_player_api.set_animation(player, anim_name, speed, loop_or_blend, ove
 		or (anim_b3d and anim_b3d.collisionbox) or model.collisionbox
 	local eff_eye_height = (anim_glb and anim_glb.eye_height)
 		or (anim_b3d and anim_b3d.eye_height) or model.eye_height
-	player:set_properties({
-		collisionbox = eff_collision,
-		eye_height = eff_eye_height,
-	})
+
+	if not collisionbox_equals(player_data.collisionbox, eff_collision)
+			or player_data.eye_height ~= eff_eye_height then
+		player_data.collisionbox = eff_collision
+		player_data.eye_height = eff_eye_height
+		player:set_properties({
+			collisionbox = eff_collision,
+			eye_height = eff_eye_height,
+		})
+	end
 end
 
 ---Play an action animation directly on a player
@@ -864,6 +920,10 @@ function x_player_api.play_action(player, action, force, skip_b3d)
 				local base_fps = model.animation_speed or 30
 				local speed_b3d = base_fps * (anim_b3d.speed or 1.0)
 				local loop_b3d = anim_b3d.loop ~= false
+				if anim_b3d.loop == nil and (action == "attack_slash" or action == "attack_thrust"
+						or action:sub(1, 7) == "attack_") then
+					loop_b3d = false
+				end
 				local blend_b3d = anim_b3d.blend or 0
 				if proxies and proxies.b3d and proxies.b3d:is_valid() then
 					proxies.b3d:set_animation(anim_b3d, speed_b3d, blend_b3d, loop_b3d)
@@ -1044,6 +1104,13 @@ function x_player_api.globalstep(dtime)
 		x_player_api.step_player_wield(player, is_throttled_wield)
 	end
 end
+
+--------------------------------------------------------------------------------
+-- Public API Exports
+--------------------------------------------------------------------------------
+
+x_player_api.get_player_data = get_player_data
+x_player_api.collisionbox_equals = collisionbox_equals
 
 if not x_player_api._wrappers_applied then
 	x_player_api._wrappers_applied = true

@@ -358,6 +358,55 @@ describe("Model & Animation Architecture", function()
 		assert.equal(1.7, stand_props.collisionbox[5])
 	end)
 
+	it("preserves standard horizontal +/-0.3 collisionbox for hover, fly, and slide", function()
+		player_api.set_model(player, "character.glb")
+		local mdef = player_api.get_model("character.glb")
+		assert.is_not_nil(mdef)
+
+		local anims = mdef.animations_glb
+		-- Hover
+		assert.equal(-0.3, anims.hover.collisionbox[1])
+		assert.equal(-0.3, anims.hover.collisionbox[3])
+		assert.equal(0.3, anims.hover.collisionbox[4])
+		assert.equal(0.3, anims.hover.collisionbox[6])
+
+		-- Fly
+		assert.equal(-0.3, anims.fly.collisionbox[1])
+		assert.equal(-0.3, anims.fly.collisionbox[3])
+		assert.equal(0.3, anims.fly.collisionbox[4])
+		assert.equal(0.3, anims.fly.collisionbox[6])
+
+		-- Slide
+		assert.equal(-0.3, anims.slide.collisionbox[1])
+		assert.equal(-0.3, anims.slide.collisionbox[3])
+		assert.equal(0.3, anims.slide.collisionbox[4])
+		assert.equal(0.3, anims.slide.collisionbox[6])
+	end)
+
+	it("avoids redundant player:set_properties calls when collisionbox and eye_height are unchanged", function()
+		player_api.set_model(player, "character.glb")
+		player_api.set_animation(player, "stand")
+
+		local set_props_count = 0
+		local orig_set_properties = player.set_properties
+		player.set_properties = function(self, props)
+			if props.collisionbox or props.eye_height then
+				set_props_count = set_props_count + 1
+			end
+			return orig_set_properties(self, props)
+		end
+
+		-- Transition to walk (same collisionbox and eye_height)
+		player_api.set_animation(player, "walk")
+		assert.equal(0, set_props_count, "set_properties must not be called when collisionbox and eye_height are unchanged")
+
+		-- Transition to crouch (changed collisionbox and eye_height)
+		player_api.set_animation(player, "crouch")
+		assert.equal(1, set_props_count, "set_properties must be called when collisionbox or eye_height changes")
+
+		player.set_properties = orig_set_properties
+	end)
+
 	it("inherits animations and physical defaults when base_model is specified", function()
 		player_api.register_model("derived_armor.b3d", {
 			base_model = "character.b3d",
@@ -505,6 +554,24 @@ describe("Model & Animation Architecture", function()
 		-- Calling set_model again should heal the proxy to active model's scale
 		player_api.set_model(player, "character.glb")
 		assert.equal(1, proxies.glb:get_properties().visual_size.x)
+	end)
+
+	it("safely handles set_model on legacy engine versions lacking stop_animation method", function()
+		local legacy_player = mock_env.join_player("LegacyEngineUser")
+		legacy_player.stop_animation = nil
+		local proxies = player_api.get_visual_proxies(legacy_player)
+		if proxies and proxies.glb then
+			proxies.glb.stop_animation = nil
+		end
+
+		-- Must not throw "attempt to call method 'stop_animation' (a nil value)"
+		player_api.set_model(legacy_player, "character.b3d")
+		assert.equal("character.b3d", player_api.get_model_name(legacy_player))
+
+		player_api.set_model(legacy_player, "character.glb")
+		assert.equal("character.glb", player_api.get_model_name(legacy_player))
+
+		mock_env.leave_player(legacy_player)
 	end)
 end)
 

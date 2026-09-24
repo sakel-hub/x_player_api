@@ -277,13 +277,14 @@ describe("B3D Legacy Single-Timeline Animation Subsystem", function()
 			player_api.globalstep(0.05)
 		end
 
-		-- B3D proxy receives attack_slash frame range and maintains active combat state
+		-- B3D proxy receives attack_slash frame range with loop = false (discrete swing retriggered per cycle)
 		local b3d_model = player_api.registered_models["character.b3d"]
 		local last_call = proxies.b3d._animation_calls[#proxies.b3d._animation_calls]
 		assert.is_not_nil(last_call)
 		assert.equal(b3d_model.animations.attack_slash.x, last_call[1].x)
 		assert.equal(b3d_model.animations.attack_slash.y, last_call[1].y)
-		assert.is_true(last_call[4]) -- loop mode must be true for continuous combat swinging
+		assert.is_false(last_call[4]) -- loop mode must be false for discrete combat attacks on B3D
+		assert.is_true(#proxies.b3d._animation_calls >= 3) -- sustained combat through discrete cycle retriggers
 
 		-- GLB proxy plays attack_slash with loop = true without freezing or interruption
 		assert.is_true(#proxies.glb._played_animations >= 1)

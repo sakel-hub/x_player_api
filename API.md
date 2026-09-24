@@ -1109,14 +1109,14 @@ function x_player_api.trigger_hurt(player: ObjectRef, duration?: number)
 Trigger an explicit action duration window on a player (for combat hits, mining, swings)
 
 ```lua
-function x_player_api.trigger_player_action(player: ObjectRef, action: any, duration?: number)
+function x_player_api.trigger_player_action(player: ObjectRef, action?: string, duration?: number)
 ```
 
 **Parameters:**
 
 * `player` (`ObjectRef`): Target player
-* `action` (`any`)
-* `duration` (`number?`): Optional duration in seconds (defaults to 0.45s)
+* `action` (`string?`): Optional explicit action name (e.g. "mine", "attack_slash")
+* `duration` (`number?`): Optional duration in seconds (defaults to ACTION_DURATION)
 
 #### `x_player_api.update_player_controls`
 
@@ -1488,6 +1488,12 @@ function x_player_api.update_wield_item(player: ObjectRef, force?: boolean, wiel
 ---
 
 ## Miscellaneous Functions
+
+#### `x_player_api.collisionbox_equals`
+
+```lua
+function
+```
 
 #### `x_player_api.detect_environment`
 
