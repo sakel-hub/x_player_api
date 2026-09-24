@@ -267,7 +267,7 @@ function mock_env.setup()
 		},
 
 		get_current_modname = function() return "x_player_api" end,
-		get_player_information = function() return { protocol_version = 44 } end,
+		get_player_information = function() return { protocol_version = 53 } end,
 		_mock_us_time = 1000000,
 		get_us_time = function() return core._mock_us_time or 1000000 end,
 		get_node_or_nil = function() return {name = "air"} end,

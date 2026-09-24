@@ -33,39 +33,52 @@ end
 
 ---Ensure a player's client protocol cohort has been classified
 ---@param player_name string Connected player username
-function x_player_api.ensure_player_cohort(player_name)
-	if x_player_api.modern_cohort[player_name] or x_player_api.legacy_cohort[player_name] then
-		return
+---@param force? boolean Force re-evaluation even if already classified
+---@return boolean resolved True if cohort was successfully resolved from player info
+function x_player_api.ensure_player_cohort(player_name, force)
+	if not force and (x_player_api.modern_cohort[player_name] or x_player_api.legacy_cohort[player_name]) then
+		return true
 	end
 	local info = core.get_player_information(player_name)
 	if not info then
+		x_player_api.modern_cohort[player_name] = nil
 		x_player_api.legacy_cohort[player_name] = true
-		return
+		return false
 	end
 
-	-- Check explicit version_string if available (e.g. 5.10.0 client)
-	if info.version_string then
+	-- Check explicit version_string if available (e.g. 5.16.1 client)
+	if info.version_string and info.version_string ~= "" then
 		local major, minor = info.version_string:match("^(%d+)%.(%d+)")
 		if major and minor then
 			local maj = tonumber(major)
 			local min = tonumber(minor)
-			if maj < 5 or (maj == 5 and min < 12) then
+			if maj < 5 or (maj == 5 and min < 17) then
 				x_player_api.legacy_cohort[player_name] = true
-				return
+				x_player_api.modern_cohort[player_name] = nil
+				return true
 			else
 				x_player_api.modern_cohort[player_name] = true
-				return
+				x_player_api.legacy_cohort[player_name] = nil
+				return true
 			end
 		end
 	end
 
 	local pvers = core.protocol_versions
-	local min_protocol = (pvers and (pvers["5.17.0"] or pvers["5.12.0"])) or 44
+	local min_protocol = (pvers and pvers["5.17.0"]) or 53
 	if info.protocol_version and info.protocol_version >= min_protocol then
 		x_player_api.modern_cohort[player_name] = true
-	else
+		x_player_api.legacy_cohort[player_name] = nil
+		return true
+	elseif info.protocol_version and info.protocol_version > 0 then
 		x_player_api.legacy_cohort[player_name] = true
+		x_player_api.modern_cohort[player_name] = nil
+		return true
 	end
+
+	x_player_api.modern_cohort[player_name] = nil
+	x_player_api.legacy_cohort[player_name] = true
+	return false
 end
 
 ---Refresh observer visibility sets on all active visual proxy entities and wield items across connected players
@@ -78,7 +91,8 @@ function x_player_api.refresh_observers()
 		local wield_data = x_player_api.wield_entities[player:get_player_name()]
 		if proxies then
 			local pdata = x_player_api.get_animation(player)
-			local model = pdata and x_player_api.get_model(pdata.model)
+			local model_name = (pdata and pdata.model) or x_player_api.get_default_model()
+			local model = model_name and x_player_api.get_model(model_name)
 			local active_format = x_player_api.get_model_format()
 			local mesh_glb = (active_format ~= "b3d") and model and (model.mesh_glb
 				or (model.mesh and model.mesh:sub(-4) == ".glb" and model.mesh))
@@ -150,8 +164,29 @@ end
 core.register_on_joinplayer(function(player)
 	if not player then return end
 	local name = player:get_player_name()
-	x_player_api.ensure_player_cohort(name)
+	local resolved = x_player_api.ensure_player_cohort(name, true)
 	x_player_api.refresh_observers()
+
+	-- If peer information was not yet available during early join handshake,
+	-- retry shortly so modern clients aren't stuck in legacy fallback.
+	if not resolved then
+		core.after(0.05, function()
+			local p = core.get_player_by_name(name)
+			if p and p:is_valid() then
+				local ok = x_player_api.ensure_player_cohort(name, true)
+				x_player_api.refresh_observers()
+				if not ok then
+					core.after(0.2, function()
+						local p2 = core.get_player_by_name(name)
+						if p2 and p2:is_valid() then
+							x_player_api.ensure_player_cohort(name, true)
+							x_player_api.refresh_observers()
+						end
+					end)
+				end
+			end
+		end)
+	end
 end)
 
 core.register_on_leaveplayer(function(player)

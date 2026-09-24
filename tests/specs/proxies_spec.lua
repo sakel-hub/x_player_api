@@ -35,7 +35,7 @@ describe("Visual Proxies & Observer Cohorts", function()
 		-- Simulate legacy client joining
 		local old_get_info = core.get_player_information
 		core.get_player_information = function()
-			return { protocol_version = 43 } -- Less than 5.17.0 (44)
+			return { protocol_version = 52 } -- Less than 5.17.0 (53)
 		end
 
 		local legacy_player = mock_env.join_player("LegacyHero")
@@ -375,6 +375,78 @@ describe("Visual Proxies & Observer Cohorts", function()
 		assert.is_true(proxies.b3d._removed)
 
 		mock_env.leave_player(test_player)
+	end)
+
+	it("switches client versions between 5.16.1 and 5.17.0 seamlessly without 1-session lag", function()
+		local old_get_info = core.get_player_information
+		local current_info = { version_string = "5.16.1", protocol_version = 52 }
+		core.get_player_information = function() return current_info end
+
+		-- 1. Login with 5.16.1 client
+		local p1 = mock_env.join_player("SwitchTest")
+		local proxies1 = x_player_api.get_visual_proxies(p1)
+		assert.is_true(x_player_api.get_legacy_observers()["SwitchTest"])
+		assert.is_nil(x_player_api.get_modern_observers()["SwitchTest"])
+		assert.is_true(proxies1.b3d._observers["SwitchTest"])
+		assert.is_nil(proxies1.glb._observers and proxies1.glb._observers["SwitchTest"])
+		mock_env.leave_player(p1)
+
+		-- 2. Login with 5.17.0 client
+		current_info = { version_string = "5.17.0", protocol_version = 53 }
+		local p2 = mock_env.join_player("SwitchTest")
+		local proxies2 = x_player_api.get_visual_proxies(p2)
+		assert.is_true(x_player_api.get_modern_observers()["SwitchTest"])
+		assert.is_nil(x_player_api.get_legacy_observers()["SwitchTest"])
+		assert.is_true(proxies2.glb._observers["SwitchTest"])
+		assert.is_nil(proxies2.b3d._observers and proxies2.b3d._observers["SwitchTest"])
+		mock_env.leave_player(p2)
+
+		-- 3. Login with 5.17.0 client again
+		local p3 = mock_env.join_player("SwitchTest")
+		local proxies3 = x_player_api.get_visual_proxies(p3)
+		assert.is_true(x_player_api.get_modern_observers()["SwitchTest"])
+		assert.is_nil(x_player_api.get_legacy_observers()["SwitchTest"])
+		assert.is_true(proxies3.glb._observers["SwitchTest"])
+		mock_env.leave_player(p3)
+
+		-- 4. Login with 5.16.1 client
+		current_info = { version_string = "5.16.1", protocol_version = 52 }
+		local p4 = mock_env.join_player("SwitchTest")
+		local proxies4 = x_player_api.get_visual_proxies(p4)
+		assert.is_true(x_player_api.get_legacy_observers()["SwitchTest"])
+		assert.is_nil(x_player_api.get_modern_observers()["SwitchTest"])
+		assert.is_true(proxies4.b3d._observers["SwitchTest"])
+		assert.is_nil(proxies4.glb._observers and proxies4.glb._observers["SwitchTest"])
+		mock_env.leave_player(p4)
+
+		core.get_player_information = old_get_info
+	end)
+
+	it("handles delayed peer info handshake gracefully with deferred cohort retry", function()
+		local old_get_info = core.get_player_information
+		local info_available = false
+		core.get_player_information = function()
+			if not info_available then return nil end
+			return { version_string = "5.17.0", protocol_version = 53 }
+		end
+
+		local delayed_player = mock_env.join_player("DelayedClient")
+		-- Early join without handshake info temporarily defaults to legacy
+		assert.is_true(x_player_api.get_legacy_observers()["DelayedClient"])
+
+		-- Handshake packet completes
+		info_available = true
+		mock_env.step_timers(0.3)
+
+		-- Player should be promoted to modern cohort and observers refreshed
+		assert.is_true(x_player_api.get_modern_observers()["DelayedClient"])
+		assert.is_nil(x_player_api.get_legacy_observers()["DelayedClient"])
+
+		local proxies = x_player_api.get_visual_proxies(delayed_player)
+		assert.is_true(proxies.glb._observers["DelayedClient"])
+
+		mock_env.leave_player(delayed_player)
+		core.get_player_information = old_get_info
 	end)
 
 	it("safely purges stale detached proxies on reconnect and binds new proxies to fresh player object", function()

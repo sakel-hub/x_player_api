@@ -475,7 +475,7 @@ describe("B3D Legacy Single-Timeline Animation Subsystem", function()
 			if pname == "LegacyUser" then
 				return { protocol_version = 46, version_string = "5.10.0" }
 			end
-			return { protocol_version = 49, version_string = "5.17.0" }
+			return { protocol_version = 53, version_string = "5.17.0" }
 		end
 
 		x_player_api.modern_cohort[modern_name] = nil
@@ -533,6 +533,53 @@ describe("B3D Legacy Single-Timeline Animation Subsystem", function()
 		assert.equal(exp_eat.y, last_eat[1].y)
 
 		mock_env.leave_player(legacy_player)
+		core.get_player_information = old_get_info
+	end)
+
+	it("classifies Luanti 5.16.1 clients into legacy cohort and synchronizes B3D animations", function()
+		player_api.set_model_format("glb")
+		player_api.set_model(player, "character.glb")
+
+		local old_get_info = core.get_player_information
+		core.get_player_information = function(pname)
+			if pname == "Luanti516User" then
+				return { protocol_version = 52 } -- Luanti 5.16.1 does not send version_string
+			end
+			return { protocol_version = 53, version_string = "5.17.0" }
+		end
+
+		local p516 = mock_env.join_player("Luanti516User")
+		local name516 = p516:get_player_name()
+		player_api.set_model(p516, "character.glb")
+
+		assert.is_false(x_player_api.is_modern_client(name516))
+		assert.is_true(x_player_api.get_legacy_observers()[name516])
+		assert.is_nil(x_player_api.get_modern_observers()[name516])
+
+		x_player_api.refresh_observers()
+
+		local proxies516 = player_api.get_visual_proxies(p516)
+		assert.is_not_nil(proxies516.b3d:get_observers()[name516])
+		assert.is_nil(proxies516.glb:get_observers()[name516])
+
+		-- Luanti 5.16.1 player swings sword (attack_slash)
+		p516.get_wielded_item = function() return ItemStack("default:sword_steel") end
+		p516.get_player_control = function() return {LMB = true} end
+		p516.get_velocity = function() return {x = 0, y = 0, z = 0} end
+
+		player_api.globalstep(0.05)
+
+		local b3d_model = player_api.registered_models["character.b3d"]
+		local exp_slash = b3d_model.animations.attack_slash
+		assert.equal(exp_slash.x, p516._last_animation.anim.x)
+		assert.equal(exp_slash.y, p516._last_animation.anim.y)
+		local last_call = proxies516.b3d._animation_calls[#proxies516.b3d._animation_calls]
+		assert.is_not_nil(last_call)
+		assert.equal(exp_slash.x, last_call[1].x)
+		assert.equal(exp_slash.y, last_call[1].y)
+		assert.is_false(last_call[4]) -- 5.16.1 legacy client receives discrete non-looping slash
+
+		mock_env.leave_player(p516)
 		core.get_player_information = old_get_info
 	end)
 
