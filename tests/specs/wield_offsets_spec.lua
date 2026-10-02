@@ -19,7 +19,7 @@ describe("Wield Item Offsets and Orientations", function()
 		assert.near(0.275 * 1.33, visual_size.y, 1e-4)
 		assert.near(0.275 * 1.33, visual_size.z, 1e-4)
 		assert.equal({x = 0, y = 4.9, z = -3.5}, pos)
-		assert.equal({x = -90, y = 45, z = 90}, rot)
+		assert.equal({x = -90, y = 45, z = -90}, rot)
 		assert.equal(0, glow)
 		assert.equal(nil, item_color)
 	end)
@@ -178,7 +178,7 @@ describe("Wield Item Offsets and Orientations", function()
 		}
 		local _, pos, rot = player_api.get_wield_attachment_params("custom:old_unprefixed")
 		assert.equal({x = 0, y = 4.9, z = -3.5}, pos)
-		assert.equal({x = -90, y = 45, z = 90}, rot)
+		assert.equal({x = -90, y = 45, z = -90}, rot)
 	end)
 
 	it("handles texture modifier rotation negation", function()
@@ -195,6 +195,29 @@ describe("Wield Item Offsets and Orientations", function()
 		}
 		local _, _, rot270 = player_api.get_wield_attachment_params("rotated:item_270")
 		assert.equal(-270, rot270.z)
+
+		-- Tools with R90 (e.g. shovels with ^[transformR90) subtract rot_deg from rot.y
+		core.registered_items["default:shovel_mese"] = {
+			type = "tool",
+			wield_image = "default_tool_meseshovel.png^[transformR90",
+		}
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+		local _, _, rot_shov_glb = player_api.get_wield_attachment_params("default:shovel_mese")
+		assert.equal(-90, rot_shov_glb.x)
+		assert.equal(-45, rot_shov_glb.y) -- 45 - 90
+		assert.equal(-90, rot_shov_glb.z)
+
+		player_api.clear_item_cache()
+		player_api.set_model_format("b3d")
+		local _, _, rot_shov_b3d = player_api.get_wield_attachment_params("default:shovel_mese")
+		assert.equal(-90, rot_shov_b3d.x)
+		assert.equal(135, rot_shov_b3d.y) -- 225 - 90
+		assert.equal(-90, rot_shov_b3d.z)
+
+		-- Restore format to glb
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
 	end)
 
 	it("preserves colorization and extracts color metadata", function()
@@ -227,14 +250,14 @@ describe("Wield Item Offsets and Orientations", function()
 		player_api.set_model_format("glb")
 		local _, pos_glb, rot_glb = player_api.get_wield_attachment_params("default:sword_steel")
 		assert.equal({x = 0, y = 4.9, z = -3.5}, pos_glb)
-		assert.equal({x = -90, y = 45, z = 90}, rot_glb)
+		assert.equal({x = -90, y = 45, z = -90}, rot_glb)
 
 		player_api.clear_item_cache()
 		player_api.set_model_format("b3d")
 		local _, pos_b3d, rot_b3d = player_api.get_wield_attachment_params("default:sword_steel")
 		-- In B3D, converts position coordinates for +Z facing mesh and sets y=225 for diagonal tools
 		assert.equal({x = 0, y = 4.9, z = 3.5}, pos_b3d)
-		assert.equal({x = -90, y = 225, z = 90}, rot_b3d)
+		assert.equal({x = -90, y = 225, z = -90}, rot_b3d)
 
 		-- Verify bow orientation parity: both GLB and B3D use {-90, 45, -90}
 		core.registered_items["bows:bow_wood"] = {
@@ -302,7 +325,7 @@ describe("Wield Item Offsets and Orientations", function()
 		assert.equal(mock_corpse, parent)
 		assert.equal("Arm_Right", bone)
 		assert.equal({x = 0, y = 4.9, z = 3.5}, pos)
-		assert.equal({x = -90, y = 225, z = 90}, rot)
+		assert.equal({x = -90, y = 225, z = -90}, rot)
 		assert.equal(true, forced)
 
 		local props = went_b3d:get_properties()
@@ -323,7 +346,7 @@ describe("Wield Item Offsets and Orientations", function()
 		assert.is_not_nil(went_glb)
 		local _, _, pos_glb, rot_glb, forced_glb = went_glb:get_attach()
 		assert.equal({x = 0, y = 4.9, z = -3.5}, pos_glb)
-		assert.equal({x = -90, y = 45, z = 90}, rot_glb)
+		assert.equal({x = -90, y = 45, z = -90}, rot_glb)
 		assert.equal(true, forced_glb)
 	end)
 end)

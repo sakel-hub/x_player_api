@@ -143,13 +143,13 @@ describe("Wield Item Entity Lifecycle & Properties", function()
 		assert.equal(proxies.b3d, parent_b3d)
 		assert.equal("Arm_Right", bone_b3d)
 
-		-- Verify format-specific orientation: GLB uses {-90, 45, 90}, B3D uses {-90, 225, 90} for swords
+		-- Verify format-specific orientation: GLB uses {-90, 45, -90}, B3D uses {-90, 225, -90} for swords
 		assert.equal(-90, rot_glb.x)
 		assert.equal(45, rot_glb.y)
-		assert.equal(90, rot_glb.z)
+		assert.equal(-90, rot_glb.z)
 		assert.equal(-90, rot_b3d.x)
 		assert.equal(225, rot_b3d.y)
-		assert.equal(90, rot_b3d.z)
+		assert.equal(-90, rot_b3d.z)
 
 		-- Verify observer cohort assignment for GLB and B3D wield entities
 		assert.equal(x_player_api.get_modern_observers(), data.glb:get_observers())

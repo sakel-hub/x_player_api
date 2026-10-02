@@ -68,9 +68,9 @@ local wield_entities = x_player_api.wield_entities
 -- Base configuration constants
 local BASE_BONE = "Arm_Right"
 local BASE_POS_GLB = {x = 0, y = 5.2, z = -3.5}
-local BASE_ROT_GLB = {x = -90, y = 45, z = 90}
+local BASE_ROT_GLB = {x = -90, y = 45, z = -90}
 local BASE_POS_B3D = {x = 0, y = 5.2, z = 3.5}
-local BASE_ROT_B3D = {x = -90, y = 225, z = 90}
+local BASE_ROT_B3D = {x = -90, y = 225, z = -90}
 local BASE_SCALE_VAL = 0.275
 local WIELD_UPDATE_INTERVAL = tonumber(core.settings:get("x_player_api.wield_update_interval")) or 0.2
 
@@ -399,13 +399,14 @@ function x_player_api.get_wield_attachment_params(item_or_stack, format_override
 	apply_scale(visual_size, def._wield_scale)
 
 	-- Apply texture modifier rotation negation:
-	-- If texture is rotated clockwise (e.g. ^[transformR90), compensate so held item remains facing forward.
+	-- If texture is rotated counter-clockwise by Luanti's ^[transformR<deg> (e.g. ^[transformR90 on shovels),
+	-- compensate so held tool remains facing forward with handle in grip.
 	local rot_deg, item_color = parse_texture_modifiers(def, wield_stack)
 	if rot_deg ~= 0 then
 		if item_type == "craftitem" or item_type == "craft" then
 			rot.z = rot.z - rot_deg
 		else
-			rot.y = rot.y + rot_deg
+			rot.y = rot.y - rot_deg
 		end
 	end
 
