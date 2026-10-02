@@ -408,6 +408,8 @@ function x_player_api.set_model(player, model_name)
 		local mesh_glb = (active_format ~= "b3d") and (model.mesh_glb
 			or (model.mesh and model.mesh:match("%.glb$") and model.mesh))
 		local mesh_b3d = (model.mesh and not model.mesh:match("%.glb$") and model.mesh) or model.mesh_b3d
+		local texture_alpha = (model.use_texture_alpha ~= nil)
+			and ((model.use_texture_alpha and model.use_texture_alpha ~= "opaque") and true or false) or false
 
 		if is_pure_b3d and mesh_b3d then
 			-- In pure native B3D mode: mesh & textures apply directly to native player entity
@@ -419,7 +421,7 @@ function x_player_api.set_model(player, model_name)
 				collisionbox = model.collisionbox,
 				stepheight = model.stepheight,
 				eye_height = model.eye_height,
-				use_texture_alpha = false,
+				use_texture_alpha = texture_alpha,
 				is_visible = true,
 			})
 			player_data.collisionbox = model.collisionbox
@@ -443,6 +445,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_glb,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					use_texture_alpha = texture_alpha,
 					is_visible = true,
 				})
 			elseif proxies.glb and proxies.glb:is_valid() then
@@ -457,6 +460,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_b3d,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					use_texture_alpha = texture_alpha,
 					is_visible = true,
 				})
 			elseif proxies.b3d and proxies.b3d:is_valid() then
@@ -592,16 +596,27 @@ function x_player_api.set_textures(player, textures)
 
 	local proxies = x_player_api.get_visual_proxies(player)
 	if model then
+		local texture_alpha = (model.use_texture_alpha ~= nil)
+			and ((model.use_texture_alpha and model.use_texture_alpha ~= "opaque") and true or false) or false
 		if x_player_api.is_pure_native_b3d_active(player) then
-			player:set_properties({textures = new_textures})
+			player:set_properties({
+				textures = new_textures,
+				use_texture_alpha = texture_alpha,
+			})
 		elseif proxies then
 			local mesh_glb = model.mesh_glb or (model.mesh and model.mesh:match("%.glb$") and model.mesh)
 			local mesh_b3d = (model.mesh and not model.mesh:match("%.glb$") and model.mesh) or model.mesh_b3d
 			if proxies.glb and proxies.glb:is_valid() and mesh_glb then
-				proxies.glb:set_properties({textures = new_textures})
+				proxies.glb:set_properties({
+					textures = new_textures,
+					use_texture_alpha = texture_alpha,
+				})
 			end
 			if proxies.b3d and proxies.b3d:is_valid() and mesh_b3d then
-				proxies.b3d:set_properties({textures = new_textures})
+				proxies.b3d:set_properties({
+					textures = new_textures,
+					use_texture_alpha = texture_alpha,
+				})
 			end
 		end
 	end

@@ -573,6 +573,42 @@ describe("Model & Animation Architecture", function()
 
 		mock_env.leave_player(legacy_player)
 	end)
+
+	it("propagates model.use_texture_alpha to visual proxies and player in pure native B3D mode", function()
+		player_api.register_model("alpha_test_model.b3d", {
+			mesh = "alpha_test_model.b3d",
+			mesh_glb = "alpha_test_model.glb",
+			use_texture_alpha = "clip",
+			textures = {"alpha1.png", "alpha2.png"},
+		})
+
+		player_api.set_model(player, "alpha_test_model.b3d")
+		local proxies = player_api.get_visual_proxies(player)
+		assert.is_not_nil(proxies)
+		assert.is_true(proxies.glb:get_properties().use_texture_alpha)
+		assert.is_true(proxies.b3d:get_properties().use_texture_alpha)
+
+		-- Setting textures should preserve use_texture_alpha
+		player_api.set_textures(player, {"alpha1_alt.png", "alpha2_alt.png"})
+		assert.is_true(proxies.glb:get_properties().use_texture_alpha)
+		assert.is_true(proxies.b3d:get_properties().use_texture_alpha)
+
+		-- Switching back to standard model resets use_texture_alpha to false
+		player_api.set_model(player, "character.b3d")
+		assert.is_false(proxies.glb:get_properties().use_texture_alpha)
+		assert.is_false(proxies.b3d:get_properties().use_texture_alpha)
+
+		-- Test pure native B3D mode
+		player_api.set_model_format("b3d")
+		player_api.set_pure_native_b3d(true)
+		player_api.set_model(player, "alpha_test_model.b3d")
+		assert.is_true(player:get_properties().use_texture_alpha)
+
+		player_api.set_model(player, "character.b3d")
+		assert.is_false(player:get_properties().use_texture_alpha)
+
+		player_api.set_pure_native_b3d(false)
+	end)
 end)
 
 

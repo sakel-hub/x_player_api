@@ -126,6 +126,16 @@ function x_player_api.wrap_player_metatable(player)
 							proxies.b3d:set_properties({ visual_size = props.visual_size })
 						end
 					end
+					-- Forward use_texture_alpha to visual proxies if specified
+					if props.use_texture_alpha ~= nil then
+						local b_alpha = (props.use_texture_alpha and props.use_texture_alpha ~= "opaque") and true or false
+						if proxies.glb and proxies.glb:is_valid() then
+							proxies.glb:set_properties({ use_texture_alpha = b_alpha })
+						end
+						if proxies.b3d and proxies.b3d:is_valid() then
+							proxies.b3d:set_properties({ use_texture_alpha = b_alpha })
+						end
+					end
 					-- Enforce that native player visual is ALWAYS a hidden 3D mesh with unit scale
 					local safe_props = table.copy(props)
 					safe_props.visual = "mesh"
@@ -241,12 +251,14 @@ local function setup_player_proxies(player)
 			or (model and model.mesh_b3d) or "character.b3d"
 		local pdata = x_player_api.get_player_data and x_player_api.get_player_data(player)
 		local textures = (pdata and pdata.textures) or (model and model.textures) or {"character.png"}
+		local texture_alpha = (model and model.use_texture_alpha ~= nil)
+			and ((model.use_texture_alpha and model.use_texture_alpha ~= "opaque") and true or false) or false
 		player:set_properties({
 			visual = "mesh",
 			mesh = mesh_b3d,
 			visual_size = (model and model.visual_size) or {x = 1, y = 1},
 			textures = textures,
-			use_texture_alpha = false,
+			use_texture_alpha = texture_alpha,
 		})
 	else
 		-- Hide native player visual, converting from 2D upright_sprite to unit-scale transparent mesh
@@ -444,12 +456,14 @@ local function on_respawn_player_proxies(player)
 			or (model and model.mesh_b3d) or "character.b3d"
 		local pdata = x_player_api.get_player_data and x_player_api.get_player_data(player)
 		local textures = (pdata and pdata.textures) or (model and model.textures) or {"character.png"}
+		local texture_alpha = (model and model.use_texture_alpha ~= nil)
+			and ((model.use_texture_alpha and model.use_texture_alpha ~= "opaque") and true or false) or false
 		player:set_properties({
 			visual = "mesh",
 			mesh = mesh_b3d,
 			visual_size = (model and model.visual_size) or {x = 1, y = 1},
 			textures = textures,
-			use_texture_alpha = false,
+			use_texture_alpha = texture_alpha,
 		})
 	else
 		-- Ensure native player visual remains hidden transparent 3D mesh with unit scale
