@@ -77,6 +77,7 @@
 ---@field time_now number Current server timestamp in seconds
 ---@field is_hurt boolean Whether hurt flinch is active
 ---@field is_equipping boolean Whether weapon equip animation is active
+---@field is_attached? boolean Whether player is attached to a vehicle, mount, or object
 
 ---@alias StateChangeCallback fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act: string?)
 ---@alias StateEvaluatorFunc fun(player: ObjectRef, ctx: StateEvaluationContext): string?
@@ -1018,6 +1019,7 @@ function x_player_api.get_player_state(player, time_now)
 		eval_ctx.time_now = time_now
 		eval_ctx.is_hurt = is_hurt
 		eval_ctx.is_equipping = is_equipping
+		eval_ctx.is_attached = is_attached
 
 		local loc_evals = ctrl.locomotion_evaluators
 		for i = 1, #loc_evals do

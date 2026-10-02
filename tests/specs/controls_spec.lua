@@ -852,6 +852,35 @@ describe("Controls & Semantic State Engine", function()
 		player_api.player_attached[name] = false
 	end)
 
+	it("passes is_attached to locomotion evaluators allowing external custom vehicle locomotion", function()
+		player_api.set_model(player, "character.glb")
+		local name = player:get_player_name()
+		player_api.player_attached[name] = true
+
+		local received_attached = nil
+		local evaluator = function(_p, ctx)
+			received_attached = ctx.is_attached
+			if ctx.is_attached then
+				return "stand"
+			end
+			return nil
+		end
+
+		player_api.register_locomotion_evaluator(90, evaluator)
+		local state = player_api.get_player_state(player)
+
+		assert.is_true(received_attached, "ctx.is_attached must be true in locomotion evaluator")
+		assert.equal("stand", state.locomotion, "Custom evaluator must be able to override attached locomotion")
+
+		-- Clean up evaluator from list
+		for i = #player_api.controls.locomotion_evaluators, 1, -1 do
+			if player_api.controls.locomotion_evaluators[i].func == evaluator then
+				table.remove(player_api.controls.locomotion_evaluators, i)
+			end
+		end
+		player_api.player_attached[name] = false
+	end)
+
 	it("safely ignores nil or invalid ObjectRefs on public triggers and prevents emotes when dead", function()
 		assert.is_nil(player_api.trigger_bow_shoot(nil))
 		assert.is_nil(player_api.trigger_hurt(nil))

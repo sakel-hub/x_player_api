@@ -194,6 +194,7 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `hp` | `number` | Player health points |
 | `in_air` | `boolean` | Whether player is airborne |
 | `in_water` | `boolean` | Whether player is submerged in liquid |
+| `is_attached` | `boolean?` | Whether player is attached to a vehicle, mount, or object |
 | `is_equipping` | `boolean` | Whether weapon equip animation is active |
 | `is_hurt` | `boolean` | Whether hurt flinch is active |
 | `is_moving` | `boolean` | Whether player has directional movement |
@@ -698,12 +699,18 @@ function
 Ensure a player's client protocol cohort has been classified
 
 ```lua
-function x_player_api.ensure_player_cohort(player_name: string)
+function x_player_api.ensure_player_cohort(player_name: string, force?: boolean)
+  -> resolved: boolean
 ```
 
 **Parameters:**
 
 * `player_name` (`string`): Connected player username
+* `force` (`boolean?`): Force re-evaluation even if already classified
+
+**Returns:**
+
+* `resolved` (`boolean`): True if cohort was successfully resolved from player info
 
 #### `x_player_api.get_legacy_observers`
 
@@ -1033,6 +1040,18 @@ function x_player_api.register_weapon_category(category: string, action: string)
 
 * `category` (`string`): Group filter (e.g. "group:spear") or exact item name
 * `action` (`string`): Primary action track name (e.g. "attack_thrust")
+
+#### `x_player_api.reset_transient_controls_state`
+
+Reset transient action timers and combat states for a player (e.g. upon death or teleport).
+
+```lua
+function x_player_api.reset_transient_controls_state(name: string)
+```
+
+**Parameters:**
+
+* `name` (`string`): Player username
 
 #### `x_player_api.stop_emote`
 
