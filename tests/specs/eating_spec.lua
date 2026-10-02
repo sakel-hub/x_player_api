@@ -456,7 +456,7 @@ describe("Eating & Consumables System", function()
 		assert.equal(0, pstate.eat_until)
 	end)
 
-	it("immediately cancels eating animation and switches to mine when pressing LMB with tool or bare hands", function()
+	it("immediately cancels eating animation and switches to mine when pressing LMB with mining tool", function()
 		core.registered_items["default:apple"] = {type = "craftitem", groups = {food = 1}}
 		core.registered_items["default:pick_steel"] = {type = "tool", groups = {pickaxe = 1}}
 		player:set_wielded_item("default:apple", 1)
@@ -477,6 +477,86 @@ describe("Eating & Consumables System", function()
 		assert.equal("mine", state.action)
 		assert.is_false(state.eating)
 		assert.equal(0, pstate.eat_until)
+	end)
+
+	it("continues eating animation on single food stack consumption when hand is empty and LMB is pressed", function()
+		core.registered_items["default:apple"] = {type = "craftitem", groups = {food = 1}}
+		-- Start with 1 apple in hand
+		player:set_wielded_item("default:apple", 1)
+		player_api.clear_item_cache()
+
+		-- Player clicks LMB to eat: consuming the single apple empties the hand
+		player:set_wielded_item("", 0)
+		player_api.clear_item_cache()
+		player_api.trigger_eat(player, 1.34, "default:apple")
+
+		local pstate = player_api.controls.player_states[player:get_player_name()]
+		assert.is_true(pstate.eat_until > 0)
+		assert.equal("default:apple", pstate.eat_item_name)
+
+		-- The mouse click is still held/active during this frame with empty hand
+		player._controls = {LMB = true, dig = true, RMB = false, place = false}
+		player_api.controls.update_player_controls(player, 0.05)
+
+		local state = player_api.get_player_state(player)
+		-- Eating animation must NOT be cancelled by the empty hand click
+		assert.equal("eat", state.action)
+		assert.is_true(state.eating)
+		assert.is_true(pstate.eat_until > 0)
+	end)
+
+	it("preserves eaten food texture particles across hotbar switches during eating animation", function()
+		core.registered_items["farming:bread"] = {
+			type = "craftitem",
+			inventory_image = "farming_bread.png",
+			groups = {food = 1},
+		}
+		core.registered_items["default:pick_steel"] = {
+			type = "tool",
+			inventory_image = "default_tool_steelpick.png",
+			groups = {pickaxe = 1},
+		}
+		player:set_wielded_item("farming:bread", 1)
+		player_api.clear_item_cache()
+		player_api.trigger_eat(player, 1.34, "farming:bread")
+
+		local pstate = player_api.controls.player_states[player:get_player_name()]
+		assert.is_true(pstate.eat_until > 0)
+		assert.equal("farming:bread", pstate.eat_item_name)
+
+		-- Switch hotbar item to pickaxe without pressing LMB
+		player:set_wielded_item("default:pick_steel", 1)
+		player_api.clear_item_cache()
+		player._controls = {LMB = false, dig = false, RMB = false, place = false}
+
+		-- Advance time to trigger chew particle emission
+		local time_now = core.get_us_time() * 0.000001
+		pstate.last_chew_particle_time = time_now - 0.30
+
+		local initial_spawner_id = core._next_spawner_id
+		player_api.controls.update_player_controls(player, 0.05)
+
+		-- Eating is still active despite holding pickaxe
+		local state = player_api.get_player_state(player)
+		assert.equal("eat", state.action)
+		assert.is_true(state.eating)
+
+		-- New particle spawner was created using bread texture, not pickaxe
+		assert.is_true(core._next_spawner_id > initial_spawner_id)
+		local last_spawner = core._particlespawners[core._next_spawner_id - 1]
+		assert.is_not_nil(last_spawner)
+		local expected_sheet = "farming_bread.png^[sheet:4x4:1,1"
+		assert.equal(expected_sheet, last_spawner.texture)
+
+		-- Now pressing LMB with the pickaxe cancels eating immediately and switches to mine
+		player._controls = {LMB = true, dig = true, RMB = false, place = false}
+		player_api.controls.update_player_controls(player, 0.05)
+
+		state = player_api.get_player_state(player)
+		assert.equal("mine", state.action)
+		assert.is_false(state.eating)
+		assert.equal(0, pstate.eat_until)
+		assert.is_nil(pstate.eat_item_name)
 	end)
 
 	it("immediately cancels eating and enters bow_aim when aiming a bow", function()

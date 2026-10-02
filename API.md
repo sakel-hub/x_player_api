@@ -85,6 +85,8 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `is_bow_charged` | `boolean` | Whether item is currently in drawn/charged state |
 | `is_food` | `boolean` | Whether item is edible or consumable |
 | `is_shield` | `boolean` | Whether item acts as a shield |
+| `is_tool` | `boolean` | Whether item is a mining or utility tool |
+| `is_weapon` | `boolean` | Whether item is a weapon intended for combat |
 | `weapon_action` | `string` | Primary action track name |
 
 ### `ModelDefinition`

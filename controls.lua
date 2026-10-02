@@ -15,6 +15,11 @@
 ---@field prev_bow_charged boolean Charged bow state from previous step
 ---@field active_emote string|nil Active gesture or posture emote name
 ---@field emote_until number Expiration timestamp for active emote (-1 for indefinite)
+---@field eat_until number Expiration timestamp for eating action
+---@field eat_action string|nil Active action identifier for eating (e.g. "eat")
+---@field eat_item_name string|nil Cached item name being consumed for particle and audio fidelity
+---@field eat_particle_type string|nil Cached particle generator type for eating
+---@field last_chew_particle_time number Timestamp of last chew particle emission
 ---@field equip_until number|nil Expiration timestamp for weapon equip montage
 ---@field prev_loco_state string Previous locomotion state identifier
 ---@field prev_action_state string|nil Previous action state identifier
@@ -58,6 +63,8 @@
 ---@field is_bow boolean Whether item acts as a bow
 ---@field is_bow_charged boolean Whether item is currently in drawn/charged state
 ---@field is_food boolean Whether item is edible or consumable
+---@field is_tool boolean Whether item is a mining or utility tool
+---@field is_weapon boolean Whether item is a weapon intended for combat
 ---@field weapon_action string Primary action track name
 ---@field action_def ItemActionDefinition|nil Registered item action configuration
 
@@ -227,6 +234,8 @@ local EMPTY_CLASSIFICATION = {
 	is_bow = false,
 	is_bow_charged = false,
 	is_food = false,
+	is_tool = false,
+	is_weapon = false,
 	weapon_action = "mine",
 	action_def = nil,
 }
@@ -293,11 +302,43 @@ local function classify_item(item_name)
 		end
 	end
 
+	local idef = core.registered_items[item_name]
+	local is_tool = false
+	if idef then
+		is_tool = (idef.type == "tool") or (idef.tool_capabilities ~= nil)
+	end
+	if not is_tool then
+		is_tool = (core.get_item_group(item_name, "tool") > 0)
+			or (core.get_item_group(item_name, "pickaxe") > 0)
+			or (core.get_item_group(item_name, "axe") > 0)
+			or (core.get_item_group(item_name, "shovel") > 0)
+			or (core.get_item_group(item_name, "hoe") > 0)
+	end
+
+	local is_weapon
+	if weapon_action and weapon_action ~= "mine" and weapon_action ~= "eat" then
+		is_weapon = true
+	elseif idef and idef.tool_capabilities and idef.tool_capabilities.damage_groups then
+		is_weapon = true
+	else
+		is_weapon = (core.get_item_group(item_name, "weapon") > 0)
+			or (core.get_item_group(item_name, "sword") > 0)
+			or (core.get_item_group(item_name, "spear") > 0)
+			or (core.get_item_group(item_name, "blade") > 0)
+	end
+
+	if is_food then
+		is_tool = false
+		is_weapon = false
+	end
+
 	local result = {
 		is_shield = is_shield,
 		is_bow = is_bow,
 		is_bow_charged = is_bow_charged,
 		is_food = is_food,
+		is_tool = is_tool,
+		is_weapon = is_weapon,
 		weapon_action = weapon_action,
 		action_def = action_def,
 	}
@@ -360,6 +401,9 @@ core.register_on_joinplayer(function(player)
 		lmb_action = nil,
 		lmb_cycle_count = 0,
 		eat_until = 0,
+		eat_action = nil,
+		eat_item_name = nil,
+		eat_particle_type = nil,
 		last_chew_particle_time = 0,
 		equip_until = 0,
 		was_on_ground = true,
@@ -423,6 +467,9 @@ local function reset_transient_controls_state(name)
 	pstate.lmb_action = nil
 	pstate.lmb_cycle_count = 0
 	pstate.eat_until = 0
+	pstate.eat_action = nil
+	pstate.eat_item_name = nil
+	pstate.eat_particle_type = nil
 	pstate.last_chew_particle_time = 0
 	pstate.equip_until = 0
 	pstate.was_jumping = false
@@ -577,7 +624,10 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 	local is_blocking = is_rmb and can_block
 	local is_aiming_bow = item_info.is_bow and (item_info.is_bow_charged or current_controls.RMB or current_controls.place)
 
-	if is_lmb and not item_info.is_food then
+	local is_active_eating = (pstate.eat_until ~= nil and pstate.eat_until > time_now)
+	local is_active_mining_or_combat = is_lmb and (item_info.is_weapon or item_info.is_tool)
+
+	if is_lmb and not item_info.is_food and not (is_active_eating and not is_active_mining_or_combat) then
 		local act = item_info.weapon_action or "mine"
 		if pstate.lmb_action ~= act or (pstate.lmb_action_until or 0) <= time_now then
 			pstate.lmb_action = act
@@ -595,10 +645,12 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 	end
 
 	-- Auto-cancel eating state when active combat, mining, bow, or blocking inputs occur
-	if (is_lmb and not item_info.is_food) or is_aiming_bow or is_blocking then
+	if is_active_mining_or_combat or is_aiming_bow or is_blocking then
 		if pstate.eat_until and pstate.eat_until > 0 then
 			pstate.eat_until = 0
 			pstate.eat_action = nil
+			pstate.eat_item_name = nil
+			pstate.eat_particle_type = nil
 			pstate.last_chew_particle_time = 0
 		end
 	end
@@ -871,21 +923,27 @@ local function resolve_action(player, pstate, controls, item_info, wield_name,
 	local is_eating = (x_player_api.enable_eating ~= false)
 		and ((pstate and pstate.eat_until and (pstate.eat_until > time_now)) or is_food_click) or false
 
-	-- Eating auto-cancels immediately if user activates combat/mining (LMB), bow (aim/shoot), or shield blocking
-	local is_combat_or_mine_input = (controls.LMB or controls.dig) and not item_info.is_food
+	-- Eating auto-cancels immediately if user activates combat/mining (LMB with weapon/tool),
+	-- bow (aim/shoot), or shield blocking
+	local is_combat_or_mine_input = (controls.LMB or controls.dig) and (item_info.is_weapon or item_info.is_tool)
 	local cancel_eating = is_combat_or_mine_input or is_aiming_bow or is_shooting_bow or is_blocking
 
 	if is_eating and cancel_eating then
 		if pstate then
 			pstate.eat_until = 0
 			pstate.eat_action = nil
+			pstate.eat_item_name = nil
+			pstate.eat_particle_type = nil
 			pstate.last_chew_particle_time = 0
 		end
 		is_eating = false
 	end
 
-	if pstate and not is_eating and pstate.eat_action then
+	if pstate and not is_eating and (pstate.eat_action or pstate.eat_item_name) then
 		pstate.eat_action = nil
+		pstate.eat_item_name = nil
+		pstate.eat_particle_type = nil
+		pstate.last_chew_particle_time = 0
 	end
 	if pstate then
 		if is_food_click and not cancel_eating then
@@ -894,12 +952,17 @@ local function resolve_action(player, pstate, controls, item_info, wield_name,
 			local act_name = (cdef and cdef.action) or "eat"
 			pstate.eat_until = math.max(pstate.eat_until or 0, time_now + act_duration)
 			pstate.eat_action = act_name
+			pstate.eat_item_name = wield_name
+			pstate.eat_particle_type = cdef and cdef.particle_type
 		end
 		if is_eating then
 			pstate.last_chew_particle_time = pstate.last_chew_particle_time or 0
 			if time_now - pstate.last_chew_particle_time >= 0.25 then
 				pstate.last_chew_particle_time = time_now
-				x_player_api.spawn_eat_particles(player, wield_name, 0.25)
+				local chew_item = (pstate.eat_item_name and pstate.eat_item_name ~= "")
+					and pstate.eat_item_name or wield_name
+				local chew_type = pstate.eat_particle_type
+				x_player_api.spawn_eat_particles(player, chew_item, 0.25, chew_type)
 			end
 		else
 			pstate.last_chew_particle_time = 0

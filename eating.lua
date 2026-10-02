@@ -348,7 +348,9 @@ x_player_api.register_particle_generator("crumbs", function(player, item_name, d
 		local name = player:get_player_name()
 		local states = x_player_api.controls.player_states
 		local pstate = states and states[name]
-		if pstate and pstate.wield_name and pstate.wield_name ~= "" then
+		if pstate and pstate.eat_item_name and pstate.eat_item_name ~= "" then
+			item_name = pstate.eat_item_name
+		elseif pstate and pstate.wield_name and pstate.wield_name ~= "" then
 			item_name = pstate.wield_name
 		end
 	end
@@ -442,7 +444,9 @@ x_player_api.register_particle_generator("liquid_drops", function(player, item_n
 		local name = player:get_player_name()
 		local states = x_player_api.controls.player_states
 		local pstate = states and states[name]
-		if pstate and pstate.wield_name and pstate.wield_name ~= "" then
+		if pstate and pstate.eat_item_name and pstate.eat_item_name ~= "" then
+			item_name = pstate.eat_item_name
+		elseif pstate and pstate.wield_name and pstate.wield_name ~= "" then
 			item_name = pstate.wield_name
 		end
 	end
@@ -511,6 +515,15 @@ function x_player_api.spawn_eat_particles(player, item_name, duration, particle_
 	end
 	if not player or not player:is_player() then
 		return nil
+	end
+
+	if not item_name or item_name == "" then
+		local name = player:get_player_name()
+		local states = x_player_api.controls.player_states
+		local pstate = states and states[name]
+		if pstate and pstate.eat_item_name and pstate.eat_item_name ~= "" then
+			item_name = pstate.eat_item_name
+		end
 	end
 
 	if not particle_type then
@@ -587,6 +600,8 @@ function x_player_api.trigger_eat(player, duration, item_name)
 
 	pstate.eat_until = math.max(pstate.eat_until or 0, time_now + act_duration)
 	pstate.eat_action = action_name
+	pstate.eat_item_name = item_name or pstate.eat_item_name
+	pstate.eat_particle_type = cdef.particle_type or "crumbs"
 
 	if not is_already_eating then
 		x_player_api.play_action(player, action_name, true)
@@ -620,6 +635,8 @@ function x_player_api.cancel_eat(player)
 	local was_eating = (pstate.eat_until ~= nil and pstate.eat_until > time_now) or false
 	pstate.eat_until = 0
 	pstate.eat_action = nil
+	pstate.eat_item_name = nil
+	pstate.eat_particle_type = nil
 	pstate.last_chew_particle_time = 0
 
 	if pstate.semantic_state then
