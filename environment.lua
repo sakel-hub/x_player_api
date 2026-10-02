@@ -102,6 +102,55 @@ function x_player_api.is_player_on_ladder(pos)
 	return false
 end
 
+---Check if a node definition supports the player from below at foot level
+---@nodiscard
+---@param node_name string Node item name
+---@param node_y number Integer node Y coordinate
+---@param player_y number Player world Y coordinate
+---@param dist? number Maximum probe distance
+---@return boolean is_supporting True if node is walkable and provides upward support surface
+local function is_node_supporting(node_name, node_y, player_y, dist)
+	local def = core.registered_nodes[node_name]
+	if not def or not def.walkable then
+		return false
+	end
+
+	local local_y = player_y - node_y
+	-- If local_y is outside node vertical span [-0.5, 0.5], it cannot be inside this node
+	if local_y < -0.5 or local_y > 0.5 then
+		return true
+	end
+
+	-- Node is at foot level: check collision/node box to ensure player is not beneath an inverted/ceiling box
+	local cbox = def.collision_box or def.node_box
+	if not cbox or cbox.type ~= "fixed" or not cbox.fixed then
+		-- Standard full cube (or unspecified box): top face is at local_y = 0.5
+		return true
+	end
+
+	local max_dist = dist or 0.8
+	local fixed = cbox.fixed
+	if type(fixed[1]) == "number" then
+		-- Single box: {minx, miny, minz, maxx, maxy, maxz}
+		local miny = fixed[2]
+		local maxy = fixed[5]
+		return local_y >= (miny - 0.05) and local_y >= (maxy - 0.1) and local_y <= (maxy + max_dist)
+	elseif type(fixed[1]) == "table" then
+		-- Multiple boxes: check if any sub-box supports player
+		for i = 1, #fixed do
+			local box = fixed[i]
+			local miny = box[2]
+			local maxy = box[5]
+			if local_y >= (miny - 0.05) and local_y >= (maxy - 0.1) and local_y <= (maxy + max_dist) then
+				return true
+			end
+		end
+		return false
+	end
+
+	return true
+end
+
 ---Check if solid ground is within a vertical distance below player with center-first short-circuiting
 ---@nodiscard
 ---@param pos Vector3|nil Player world position
@@ -115,7 +164,7 @@ function x_player_api.is_ground_near(pos, dist, pstate)
 	scratch_probe_pos.x = pos.x
 	scratch_probe_pos.z = pos.z
 
-	-- Depth 1: Immediately below feet (0.25 nodes) to detect direct contact with slabs, stairs, beds, snow, full blocks
+	-- Depth 1: Immediately below feet (0.25 nodes) to detect direct contact with full blocks, slabs, stairs, snow
 	scratch_probe_pos.y = pos.y - 0.25
 	local node = core.get_node_or_nil(scratch_probe_pos)
 	if node then
@@ -128,6 +177,22 @@ function x_player_api.is_ground_near(pos, dist, pstate)
 		end
 	elseif pstate and pstate.was_on_ground ~= false then
 		-- Unloaded chunk: retain grounded state to avoid false airborne hover on join
+		return true
+	end
+
+	-- Depth 2: Foot level (pos.y) for thin walkable nodeboxes (e.g. lotus leaves, waterlilies, carpets)
+	-- whose top collision surface resides in the lower portion of the node (nodebox max_y < -0.25).
+	scratch_probe_pos.y = pos.y
+	node = core.get_node_or_nil(scratch_probe_pos)
+	if node then
+		if node.name == "ignore" then
+			return pstate == nil or pstate.was_on_ground ~= false
+		end
+		local node_y = math.floor(pos.y + 0.5)
+		if is_node_supporting(node.name, node_y, pos.y, dist) then
+			return true
+		end
+	elseif pstate and pstate.was_on_ground ~= false then
 		return true
 	end
 
@@ -191,6 +256,20 @@ function x_player_api.is_ground_near(pos, dist, pstate)
 				if def and def.walkable then
 					return true
 				end
+			end
+
+			scratch_probe_pos.y = pos.y
+			node = core.get_node_or_nil(scratch_probe_pos)
+			if node then
+				if node.name == "ignore" then
+					return pstate == nil or pstate.was_on_ground ~= false
+				end
+				local node_y = math.floor(pos.y + 0.5)
+				if is_node_supporting(node.name, node_y, pos.y, dist) then
+					return true
+				end
+			elseif pstate and pstate.was_on_ground ~= false then
+				return true
 			end
 
 			if dist > 0.25 then

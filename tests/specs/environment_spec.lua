@@ -98,6 +98,46 @@ describe("Environmental Spatial Probing Subsystem", function()
 
 		pstate.was_on_ground = false
 		assert.is_false(x_player_api.is_ground_near({x = 0, y = 0.2, z = 0}, 0.8, pstate))
+
+		-- Ground on thin floating nodebox (e.g. everness:lotus_leaf) resting above non-walkable water
+		core.registered_nodes["everness:lotus_leaf"] = {
+			walkable = true,
+			collision_box = {
+				type = "fixed",
+				fixed = {-0.5, -0.4688, -0.5, 0.5, -0.375, 0.5},
+			},
+		}
+		core.get_node_or_nil = function(pos)
+			local ny = math.floor(pos.y + 0.5)
+			if ny == 18 then
+				return {name = "everness:lotus_leaf"}
+			elseif ny < 18 then
+				return {name = "default:water_source"}
+			end
+			return {name = "air"}
+		end
+		-- Lotus leaf top is at 18 - 0.375 = 17.625
+		assert.is_true(x_player_api.is_ground_near({x = 4845.1, y = 17.625, z = 5800.2}, 0.8))
+
+		-- Floating in air beneath inverted/ceiling slab should not register as grounded
+		core.registered_nodes["test:ceiling_slab"] = {
+			walkable = true,
+			collision_box = {
+				type = "fixed",
+				fixed = {-0.5, 0.0, -0.5, 0.5, 0.5, 0.5},
+			},
+		}
+		core.get_node_or_nil = function(pos)
+			local ny = math.floor(pos.y + 0.5)
+			if ny == 10 then
+				return {name = "test:ceiling_slab"}
+			end
+			return {name = "air"}
+		end
+		-- Feet at 9.7 are underneath the ceiling slab (solid section starts at 10.0)
+		assert.is_false(x_player_api.is_ground_near({x = 0, y = 9.7, z = 0}, 0.8))
+		-- Feet at 10.5 are on top of the ceiling slab
+		assert.is_true(x_player_api.is_ground_near({x = 0, y = 10.5, z = 0}, 0.8))
 	end)
 
 	it("returns comprehensive environment states via detect_environment", function()
