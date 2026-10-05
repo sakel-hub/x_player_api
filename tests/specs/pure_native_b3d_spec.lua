@@ -148,14 +148,18 @@ describe("Pure Native B3D Mode & Connected Players Subsystem", function()
 
 		local override_called = false
 		local target_bone = nil
-		player.set_bone_override = function(_, bone)
+		local target_payload = nil
+		player.set_bone_override = function(_, bone, payload)
 			override_called = true
 			target_bone = bone
+			target_payload = payload
 		end
 
 		player_api.set_bone_override(player, "Head", {x = 0, y = 0, z = 0}, {x = 0.5, y = 0, z = 0})
 		assert.is_true(override_called)
 		assert.equal("Head", target_bone)
+		assert.is_not_nil(target_payload)
+		assert.near(-0.5, target_payload.rotation.vec.x, 1e-4, "Pure native B3D mode must receive compensated rotation")
 	end)
 
 	it("updates textures directly on player ObjectRef in pure native B3D mode", function()

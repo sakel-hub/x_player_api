@@ -163,7 +163,29 @@ function x_player_api.wrap_player_metatable(player)
 							proxies.glb:set_bone_override(bone, override)
 						end
 						if proxies.b3d and proxies.b3d:is_valid() then
-							proxies.b3d:set_bone_override(bone, override)
+							local b3d_override = override
+							if override and (override.rotation or override.position) then
+								b3d_override = table.copy(override)
+								if override.rotation and override.rotation.vec then
+									local rv = override.rotation.vec
+									b3d_override.rotation = table.copy(override.rotation)
+									b3d_override.rotation.vec = {
+										x = -(rv.x or 0),
+										y = -(rv.y or 0),
+										z = -(rv.z or 0),
+									}
+								end
+								if override.position and override.position.vec then
+									local pv = override.position.vec
+									b3d_override.position = table.copy(override.position)
+									b3d_override.position.vec = {
+										x = -(pv.x or 0),
+										y = pv.y or 0,
+										z = -(pv.z or 0),
+									}
+								end
+							end
+							proxies.b3d:set_bone_override(bone, b3d_override)
 						end
 					end
 				end

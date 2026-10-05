@@ -81,10 +81,10 @@ describe("Visual Proxies & Observer Cohorts", function()
 		local ov3 = proxies.glb:get_bone_override("Head")
 		assert.near(0.65, ov3.rotation.vec.x, 1e-4, "Head bone should update when delta exceeds throttle threshold")
 
-		-- Verify dispatch to both glb and b3d proxies
+		-- Verify dispatch to both glb and b3d proxies (with B3D coordinate compensation)
 		local ov_b3d = proxies.b3d:get_bone_override("Head")
 		assert.is_not_nil(ov_b3d)
-		assert.near(0.65, ov_b3d.rotation.vec.x, 1e-4, "B3D proxy must also receive bone override")
+		assert.near(-0.65, ov_b3d.rotation.vec.x, 1e-4, "B3D proxy must receive compensated bone override (-X)")
 	end)
 
 	it("mutates bone cache in-place and safely handles nil position or rotation", function()
@@ -159,7 +159,7 @@ describe("Visual Proxies & Observer Cohorts", function()
 	end)
 
 
-	it("routes player:set_bone_override calls to visual proxies", function()
+	it("routes player:set_bone_override calls to visual proxies with B3D compensation", function()
 		local proxies = x_player_api.get_visual_proxies(player)
 		local override = {
 			position = {vec = {x = 0, y = 1.5, z = 0}, absolute = true},
@@ -173,7 +173,36 @@ describe("Visual Proxies & Observer Cohorts", function()
 		assert.is_not_nil(ov_glb, "GLB proxy must receive bone override")
 		assert.is_not_nil(ov_b3d, "B3D proxy must receive bone override")
 		assert.near(0.45, ov_glb.rotation.vec.x, 1e-4)
-		assert.near(0.45, ov_b3d.rotation.vec.x, 1e-4)
+		assert.near(-0.45, ov_b3d.rotation.vec.x, 1e-4, "B3D proxy must receive compensated pitch (-X)")
+		assert.near(0.2, ov_glb.rotation.vec.y, 1e-4)
+		assert.near(-0.2, ov_b3d.rotation.vec.y, 1e-4, "B3D proxy must receive compensated yaw (-Y)")
+	end)
+
+	it("maintains dual-arm bow aim parity across GLB and B3D proxies", function()
+		local proxies = x_player_api.get_visual_proxies(player)
+		-- Downward bow aim: Arm_Right pitched down, Arm_Left reaching down and inward
+		local arm_r_rot = {x = 0.60, y = 0, z = 0}
+		local arm_l_rot = {x = 0.30, y = 0.156, z = -0.048}
+
+		x_player_api.set_bone_override(player, "Arm_Right", nil, arm_r_rot, true, 0.1, false)
+		x_player_api.set_bone_override(player, "Arm_Left", nil, arm_l_rot, true, 0.1, false)
+
+		local glb_r = proxies.glb:get_bone_override("Arm_Right")
+		local glb_l = proxies.glb:get_bone_override("Arm_Left")
+		local b3d_r = proxies.b3d:get_bone_override("Arm_Right")
+		local b3d_l = proxies.b3d:get_bone_override("Arm_Left")
+
+		assert.near(0.60, glb_r.rotation.vec.x, 1e-4)
+		assert.near(-0.60, b3d_r.rotation.vec.x, 1e-4, "B3D right arm pitch must be negated to match GLB downward aim")
+
+		assert.near(0.30, glb_l.rotation.vec.x, 1e-4)
+		assert.near(-0.69, b3d_l.rotation.vec.x, 1e-4, "B3D left arm pitch coordinated with bow grip")
+
+		assert.near(0.156, glb_l.rotation.vec.y, 1e-4)
+		assert.near(0.492, b3d_l.rotation.vec.y, 1e-4, "B3D left arm yaw draws inward (+Y) onto bow grip")
+
+		assert.near(-0.048, glb_l.rotation.vec.z, 1e-4)
+		assert.near(-0.36, b3d_l.rotation.vec.z, 1e-4, "B3D left arm roll aligns with grip")
 	end)
 
 	it("synchronizes skeletal animation on player ObjectRef in set_animation", function()
