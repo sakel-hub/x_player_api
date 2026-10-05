@@ -24,6 +24,7 @@ require("tests.specs.proxies_spec")
 require("tests.specs.legacy_b3d_spec")
 require("tests.specs.pure_native_b3d_spec")
 require("tests.specs.b3d_wiggler_spec")
+require("tests.specs.head_tracking_spec")
 
 -- Run the test suite
 local ok = framework.run()

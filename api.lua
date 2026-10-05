@@ -265,6 +265,9 @@ function x_player_api.set_model_format(format)
 			end
 		end
 		x_player_api.update_wield_item(p, true)
+		if x_player_api.refresh_head_tracking then
+			x_player_api.refresh_head_tracking(p)
+		end
 	end
 	x_player_api.refresh_observers()
 	return true, format
@@ -289,6 +292,9 @@ function x_player_api.set_pure_native_b3d(enable)
 			end
 		end
 		x_player_api.update_wield_item(p, true)
+		if x_player_api.refresh_head_tracking then
+			x_player_api.refresh_head_tracking(p)
+		end
 	end
 	x_player_api.refresh_observers()
 end
@@ -1114,6 +1120,8 @@ function x_player_api.globalstep(dtime)
 			else
 				x_player_api.step_b3d_animation(player, state, model, animation_speed_mod)
 			end
+
+			x_player_api.step_head_tracking(player, dtime, state)
 		end
 
 		x_player_api.step_player_wield(player, is_throttled_wield)

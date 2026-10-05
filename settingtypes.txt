@@ -18,3 +18,6 @@ x_player_api.model_format (Preferred Model Format) enum glb glb,b3d
 
 # Render B3D models directly on native player entity without visual proxies, preserving native client prediction
 x_player_api.pure_native_b3d (Pure Native B3D Mode) bool false
+
+# Enable realistic head bone rotation tracking based on player look direction
+x_player_api.enable_head_tracking (Enable Head Tracking) bool true

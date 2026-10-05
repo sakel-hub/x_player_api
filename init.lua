@@ -14,6 +14,7 @@ dofile(modpath .. "/equip_sounds.lua")
 dofile(modpath .. "/emotes.lua")
 dofile(modpath .. "/environment.lua")
 dofile(modpath .. "/controls.lua")
+dofile(modpath .. "/head_tracking.lua")
 dofile(modpath .. "/test_anim.lua")
 dofile(modpath .. "/legacy_b3d.lua")
 
