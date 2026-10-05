@@ -8,6 +8,7 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 - [Type Aliases & Callbacks](#type-aliases--callbacks)
 - [Core & Model API](#core--model-api)
 - [Visual Proxies & Observers API](#visual-proxies--observers-api)
+- [Head & Arm Look Tracking API](#head--arm-look-tracking-api)
 - [Locomotion & Action Controls API](#locomotion--action-controls-api)
 - [Eating & Consumables API](#eating--consumables-api)
 - [3D Wield Item API](#3d-wield-item-api)
@@ -31,12 +32,31 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `x` | `number?` | Starting frame index for legacy single-track models |
 | `y` | `number?` | Ending frame index for legacy single-track models |
 
-### `BoneOverride`
+### `BoneOverrideEntry`
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `position` | `Vector3` | Local position offset vector {x, y, z} |
-| `rotation` | `Vector3` | Local rotation vector in radians {x, y, z} |
+| `position` | `BoneOverridePayload?` | Translation payload |
+| `rotation` | `BoneOverridePayload` | Rotation payload |
+
+### `BoneOverridePayload`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `absolute` | `boolean` | Absolute vs relative transformation flag |
+| `interpolation` | `number` | Client-side interpolation duration in seconds |
+| `vec` | `Vector3` | Transformation vector |
+
+### `CachedBoneState`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `b3d_position` | `Vector3` | Compensated local position offset vector for B3D space |
+| `b3d_rotation` | `Vector3` | Compensated local rotation vector for B3D space |
+| `override_b3d` | `BoneOverrideEntry` | Pre-allocated payload container for B3D proxy |
+| `override_glb` | `BoneOverrideEntry` | Pre-allocated payload container for GLB proxy |
+| `position` | `Vector3` | Local position offset vector {x, y, z} in GLB space |
+| `rotation` | `Vector3` | Local rotation vector in radians {x, y, z} in GLB space |
 
 ### `ConsumableDefinition`
 
@@ -65,6 +85,58 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `pitch` | `number?` | Playback pitch multiplier (default: 1.0) |
 | `pitch_variance` | `number?` | Pitch randomization variance range +/- (default: 0.06, set 0 to disable) |
 | `sound` | `string\|table` | Sound name string or SimpleSoundSpec table |
+
+### `HeadTrackingConfig`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `arm_action_weight` | `number` | Pitch weight applied during mining and melee attacks (default: 0.85) |
+| `arm_aim_weight` | `number` | Pitch weight applied during bow and ranged aiming (default: 1.0) |
+| `arm_idle_weight` | `number` | Subtle pitch weight applied to arms during idle/movement (default: 0.35) |
+| `arm_pitch_down_max` | `number` | Maximum downward pitch for arms in radians |
+| `arm_pitch_up_max` | `number` | Maximum upward pitch for arms in radians |
+| `body_turn_speed` | `number` | Rate at which virtual body catches up to look direction |
+| `deadband` | `number` | Minimum angular rotation delta in radians to trigger a network packet |
+| `enable` | `boolean` | Global subsystem activation toggle |
+| `enable_arm_tracking` | `boolean` | Whether dual-arm pitch tracking is active (default: true) |
+| `fly_pitch_down_max` | `number` | Maximum downward pitch in flight in radians (default: 10 deg) |
+| `fly_pitch_offset` | `number` | Baseline upward pitch offset when flying in radians (default: -75 deg) |
+| `fly_pitch_up_max` | `number` | Maximum upward pitch in flight in radians (default: 85 deg) |
+| `interpolation` | `number` | Bone override client interpolation duration in seconds |
+| `pitch_down_max` | `number` | Maximum looking down limit in radians |
+| `pitch_up_max` | `number` | Maximum looking up limit in radians |
+| `settle_threshold` | `number` | Convergence threshold in radians to enter sleep state |
+| `smooth_speed` | `number` | Exponential decay rate in 1/seconds for head interpolation |
+| `yaw_limit_attached` | `number` | Clamped horizontal rotation limit when attached in radians |
+| `yaw_limit_free` | `number` | Clamped horizontal rotation lead when free in radians |
+
+### `HeadTrackingContext`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `attach_parent` | `ObjectRef\|nil` | Parent entity if attached |
+| `is_attached` | `boolean` | Whether player is attached to a vehicle or entity |
+| `look_horizontal` | `number` | Raw horizontal look yaw in radians |
+| `look_vertical` | `number` | Raw vertical look pitch in radians |
+| `weight` | `number` | Target posture weight multiplier |
+
+### `HeadTrackingSubsystem`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `cleanup` | `function HeadTrackingSubsystem.cleanup(player_name: string)` | Purge tracking state on player disconnect  @*param* `player_name` — Player name |
+| `config` | `HeadTrackingConfig` | Global configuration settings |
+| `get_arm_rotations` | `function` |  |
+| `get_head_rotation` | `function` |  |
+| `is_enabled` | `function` |  |
+| `modifiers` | `table<string, fun(player: ObjectRef\|Vector3)?>` | Registered custom look modifiers |
+| `refresh` | `function` |  |
+| `register_modifier` | `function` |  |
+| `reset` | `function` |  |
+| `set_enabled` | `function` |  |
+| `states` | `table<string, PlayerHeadState>` | Per-player tracking state mapping |
+| `step_player` | `function` |  |
+| `unregister_modifier` | `function` |  |
 
 ### `ItemActionDefinition`
 
@@ -126,10 +198,15 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `bow_shoot_until` | `number` | Expiration timestamp for bow firing animation |
 | `controls` | `table<string, boolean\|number>\|nil` | Last sampled player controls table |
 | `double_tap_sprint` | `boolean` | Whether double-tap sprinting is active |
+| `eat_action` | `string\|nil` | Active action identifier for eating (e.g. "eat") |
+| `eat_item_name` | `string\|nil` | Cached item name being consumed for particle and audio fidelity |
+| `eat_particle_type` | `string\|nil` | Cached particle generator type for eating |
+| `eat_until` | `number` | Expiration timestamp for eating action |
 | `emote_until` | `number` | Expiration timestamp for active emote (-1 for indefinite) |
 | `equip_until` | `number\|nil` | Expiration timestamp for weapon equip montage |
 | `hurt_until` | `number` | Expiration timestamp for hurt flinch |
 | `keys` | `table<string, boolean\|number>` | Raw control key hold state |
+| `last_chew_particle_time` | `number` | Timestamp of last chew particle emission |
 | `last_press_time` | `table<string, number>` | Timestamps for double-tap detection |
 | `lmb_action` | `string\|nil` | Active action identifier triggered by LMB |
 | `lmb_action_until` | `number` | Expiration timestamp for LMB action duration window |
@@ -153,6 +230,24 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `registered_on_press` | `(fun(player: ObjectRef, key: string))[]` |  |
 | `registered_on_release` | `(fun(player: ObjectRef, key: string, duration: number))[]` |  |
 | `registered_on_state_change` | `fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act?: string)[]` |  |
+
+### `PlayerHeadState`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `arm_current_l` | `Vector3` | Current smoothed left arm bone rotation vector {x, y, z} in radians |
+| `arm_current_r` | `Vector3` | Current smoothed right arm bone rotation vector {x, y, z} in radians |
+| `arm_last_sent_l` | `Vector3` | Last left arm rotation successfully dispatched over network {x, y, z} |
+| `arm_last_sent_r` | `Vector3` | Last right arm rotation successfully dispatched over network {x, y, z} |
+| `arm_target_l` | `Vector3` | Target left arm bone rotation vector {x, y, z} in radians |
+| `arm_target_r` | `Vector3` | Target right arm bone rotation vector {x, y, z} in radians |
+| `current` | `Vector3` | Current smoothed head bone rotation vector {x, y, z} in radians |
+| `enabled` | `boolean` | Per-player tracking activation flag |
+| `last_sent` | `Vector3` | Last head rotation successfully dispatched over network {x, y, z} |
+| `sleeping` | `boolean` | Whether orientation is settled in idle quiescence |
+| `target` | `Vector3` | Target head bone rotation vector {x, y, z} in radians |
+| `virtual_body_yaw` | `number\|nil` | Smoothed body orientation for free-standing turn lead |
+| `weight` | `number` | Current blending weight multiplier between 0.0 and 1.0 |
 
 ### `PlayerProxies`
 
@@ -277,6 +372,7 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 
 | Type Alias | Signature / Definition |
 | :--- | :--- |
+| `HeadTrackingModifier` | `fun(player: ObjectRef\|Vector3)?` |
 | `ModelRedirectRule` | `string\|fun(player: ObjectRef\|nil, model: string):string\|nil` |
 | `ParticleGeneratorFunc` | `fun(player: ObjectRef, item_name?: string, duration?: number):integer?` |
 | `StateChangeCallback` | `fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act?: string)` |
@@ -784,20 +880,184 @@ function x_player_api.refresh_observers()
 
 #### `x_player_api.set_bone_override`
 
-Set a bone position and rotation override with network throttling
+Set a bone position and rotation override with network throttling and dual-format parity
 Applies pitch, yaw, and roll rotation to visual proxy entities.
-Throttles Head bone updates below 0.08 radians (~4.5 degrees) to optimize multiplayer bandwidth.
+Automatically compensates for Blitz3D exporter bone coordinate inversions (negated rotation axes
+and reflected X/Z position) so GLB and B3D visual proxies maintain identical orientation in-game.
+Throttles Head and Arm bone updates below 0.08 radians (~4.5 degrees) to optimize multiplayer bandwidth.
 
 ```lua
-function x_player_api.set_bone_override(player: ObjectRef, bone: string, position: Vector3, rotation: Vector3)
+function x_player_api.set_bone_override(player: ObjectRef, bone: string, position: Vector3|nil, rotation: Vector3, force?: boolean, interpolation?: number, absolute?: boolean)
 ```
 
 **Parameters:**
 
 * `player` (`ObjectRef`): Target player
-* `bone` (`string`): Target bone name (e.g. "Head")
-* `position` (`Vector3`): Local bone translation offset
+* `bone` (`string`): Target bone name (e.g. "Head", "Arm_Right", "Arm_Left")
+* `position` (`Vector3|nil`): Local bone translation offset (omitted if nil to preserve bone rest position)
 * `rotation` (`Vector3`): Local bone rotation in radians
+* `force` (`boolean?`): Optional flag to bypass angular delta throttling
+* `interpolation` (`number?`): Optional interpolation duration in seconds (default: 0.1)
+* `absolute` (`boolean?`): Optional flag indicating whether rotation/position is absolute (default: true)
+
+---
+
+## Head & Arm Look Tracking API
+
+Natural head bone look tracking and synchronized dual-arm pitch aiming with biomechanical clamping, exponential temporal smoothing, attached yaw tracking, body turn lag, extensible modifier callbacks, and bandwidth-optimized quiescence sleep states.
+
+#### `x_player_api.get_arm_rotations`
+
+Get the current smoothed arm rotation vectors for a player (alias)
+
+```lua
+function x_player_api.get_arm_rotations(player: ObjectRef)
+  -> right_arm: Vector3?
+  2. left_arm: Vector3?
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `right_arm` (`Vector3?`): Smoothed rotation vector for Arm_Right in radians
+* `left_arm` (`Vector3?`): Smoothed rotation vector for Arm_Left in radians
+
+#### `x_player_api.get_head_rotation`
+
+Get the current smoothed head rotation vector for a player
+
+```lua
+function x_player_api.get_head_rotation(player: ObjectRef)
+  -> rotation: Vector3?
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `rotation` (`Vector3?`): Smoothed head rotation vector {x, y, z} in radians, or nil if player invalid
+
+#### `x_player_api.get_head_tracking_arm_rotations`
+
+Get the current smoothed arm rotation vectors for a player
+
+```lua
+function x_player_api.get_head_tracking_arm_rotations(player: ObjectRef)
+  -> right_arm: Vector3?
+  2. left_arm: Vector3?
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `right_arm` (`Vector3?`): Smoothed rotation vector for Arm_Right in radians
+* `left_arm` (`Vector3?`): Smoothed rotation vector for Arm_Left in radians
+
+#### `x_player_api.is_head_tracking_enabled`
+
+Check whether head and arm tracking is active for a player
+
+```lua
+function x_player_api.is_head_tracking_enabled(player: ObjectRef)
+  -> enabled: boolean
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `enabled` (`boolean`): Whether tracking is currently active for this player
+
+#### `x_player_api.refresh_head_tracking`
+
+Immediately re-sends current smoothed head and arm bone overrides to all proxies (e.g. on model/format toggle)
+
+```lua
+function x_player_api.refresh_head_tracking(player: ObjectRef)
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+#### `x_player_api.register_head_tracking_modifier`
+
+Register a custom head tracking modifier callback (Open/Closed Principle)
+Allows external mods to dynamically adjust target rotation angles and posture weight.
+
+```lua
+function x_player_api.register_head_tracking_modifier(name: string, func?: fun(player: ObjectRef|Vector3))
+```
+
+**Parameters:**
+
+* `name` (`string`): Unique modifier identifier
+* `func` (`fun(player: ObjectRef|Vector3)?`): Callback function receiving (player, semantic_state, ctx)
+
+#### `x_player_api.reset_head_tracking`
+
+Reset head and arm rotations to bind pose (0, 0, 0) and sleep state
+Dispatches immediate bone overrides to restore the default animation bind pose.
+
+```lua
+function x_player_api.reset_head_tracking(player: ObjectRef)
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+#### `x_player_api.set_head_tracking_enabled`
+
+Enable or disable head and arm tracking for a specific player
+Resets bones to bind pose immediately if disabled.
+
+```lua
+function x_player_api.set_head_tracking_enabled(player: ObjectRef, enabled: boolean)
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `enabled` (`boolean`): Activation flag
+
+#### `x_player_api.step_head_tracking`
+
+Step head tracking simulation and network dispatch for a player
+Evaluates camera look pitch and yaw, applies posture weights and anatomical limits,
+smooths rotations with exponential decay, and dispatches throttled bone overrides.
+
+```lua
+function x_player_api.step_head_tracking(player: ObjectRef, dtime: number, semantic_state?: PlayerSemanticState)
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `dtime` (`number`): Delta time in seconds since last server step
+* `semantic_state` (`PlayerSemanticState?`): Active player semantic state
+
+#### `x_player_api.unregister_head_tracking_modifier`
+
+Unregister a custom head tracking modifier
+
+```lua
+function x_player_api.unregister_head_tracking_modifier(name: string)
+```
+
+**Parameters:**
+
+* `name` (`string`): Modifier identifier to remove
 
 ---
 
@@ -1045,15 +1305,9 @@ function x_player_api.register_weapon_category(category: string, action: string)
 
 #### `x_player_api.reset_transient_controls_state`
 
-Reset transient action timers and combat states for a player (e.g. upon death or teleport).
-
 ```lua
-function x_player_api.reset_transient_controls_state(name: string)
+function
 ```
-
-**Parameters:**
-
-* `name` (`string`): Player username
 
 #### `x_player_api.stop_emote`
 
@@ -1783,12 +2037,13 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 | `x_player_api.active_proxies` | `table` | Active visual proxy entity instances by player name |
 | `x_player_api.animation_aliases` | `table<string, string>` | Semantic animation alias dictionary |
 | `x_player_api.blocking_predicates` | `(fun(player: ObjectRef, wield_name: string, item_info: ItemClassification):boolean)[]` |  |
-| `x_player_api.bone_caches` | `table` | Cached bone transformations for network throttling |
+| `x_player_api.bone_caches` | `table` | Cached bone transformations for network throttling and dual-format routing |
 | `x_player_api.connected_players` | `ObjectRef[]` | Locally maintained array of connected players for zero-allocation tick iteration |
 | `x_player_api.controls` | `PlayerControlsSubsystem` |  |
 | `x_player_api.enable_eating` | `unknown` | Whether eating animations, sounds, and particle simulations are enabled |
 | `x_player_api.enable_equip_sound` | `unknown` | Whether declarative item equip sound effects are enabled |
 | `x_player_api.enable_wield_item` | `unknown` | Whether 3D wielded item rendering attached to the player hand is enabled |
+| `x_player_api.head_tracking` | `HeadTrackingSubsystem` |  |
 | `x_player_api.legacy_cohort` | `table` | Map of player names with legacy client protocol |
 | `x_player_api.model_format` | `string\|"b3d"\|"glb"` |  |
 | `x_player_api.model_redirects` | `table<string, string\|fun(player: ObjectRef\|nil, model: string):string\|nil>` | Model redirection rules |

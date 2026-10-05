@@ -32,6 +32,7 @@ export.serializeAndExport = function(docs, outputDir)
     emit("- [Type Aliases & Callbacks](#type-aliases--callbacks)")
     emit("- [Core & Model API](#core--model-api)")
     emit("- [Visual Proxies & Observers API](#visual-proxies--observers-api)")
+    emit("- [Head & Arm Look Tracking API](#head--arm-look-tracking-api)")
     emit("- [Locomotion & Action Controls API](#locomotion--action-controls-api)")
     emit("- [Eating & Consumables API](#eating--consumables-api)")
     emit("- [3D Wield Item API](#3d-wield-item-api)")
@@ -233,6 +234,15 @@ export.serializeAndExport = function(docs, outputDir)
             match = function(n)
                 return n:find("proxy") or n:find("proxies") or n:find("observer")
                     or n:find("cohort") or n:find("bone") or n:find("client")
+            end
+        },
+        {
+            title = "Head & Arm Look Tracking API",
+            desc = "Natural head bone look tracking and synchronized dual-arm pitch aiming with "
+                .. "biomechanical clamping, exponential temporal smoothing, attached yaw tracking, body turn lag, "
+                .. "extensible modifier callbacks, and bandwidth-optimized quiescence sleep states.",
+            match = function(n)
+                return n:find("head") or n:find("arm_rotation") or n:find("arm_tracking")
             end
         },
         {

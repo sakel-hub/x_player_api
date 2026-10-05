@@ -9,11 +9,17 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/sakel-hub/x_player_api/pulls)
 ![AI-Assisted](https://img.shields.io/badge/AI--assisted-gray)
 
-Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), dual-model visual proxies with observer network filtering (`observers.lua`, `proxies.lua`), bone override throttling (`bone_overrides.lua`), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
+Provides a high-performance, next-generation Player API for Luanti, featuring full support for **glTF multi-track animations** (Luanti 5.17+), dual-model visual proxies with observer network filtering (`observers.lua`, `proxies.lua`), bone override throttling (`bone_overrides.lua`), smooth head bone look tracking (`head_tracking.lua`), realistic biomechanical locomotion, kinematic action layers, eating animation and crumb simulation (`eating.lua`), and 3D wield items (`wield.lua`).
 
 ![x_player_api Rig Animation Showcase](screenshot.png)
 
-Seamlessly serves modern `.glb` models to Luanti 5.17.0+ clients while providing zero-overhead fallback to legacy `.b3d` models for older clients on the same multiplayer server. Fully backward compatible with classic `.b3d` single-track models and third-party mods (`3d_armor`, `skinsdb`, `simple_skins`, `wieldview`).
+Seamlessly serves modern `.glb` models to Luanti 5.17.0+ clients while providing zero-overhead fallback to legacy `.b3d` models for older clients on the same multiplayer server, maintaining 100% backward compatibility for canonical 6-bone skins and single-track models.
+
+> [!IMPORTANT]
+> **Pure API Integration — Decoupled 3rd-Party Mod Architecture**  
+> `x_player_api` is strictly a **pure API integration**. It does not support, bundle, or directly integrate any 3rd-party mods.  
+> 
+> Third-party mods (such as armor, skins, cosmetics, shields, or wield items) can use this API to integrate seamlessly with the new player model. For practical integration examples and a showcase reference implementation of 3rd-party mod integration, see the companion [**`x_player_bridge`**](https://github.com/sakel-hub/x_player_bridge) mod.
 
 ---
 
@@ -86,10 +92,22 @@ In multiplayer environments, servers frequently host a mix of modern Luanti 5.17
    - Neither client receives duplicate packets or unsupported mesh formats.
 5. **Dual Dispatching (`api.lua`)**: All high-level API methods (`set_model`, `set_animation`, `set_textures`) simultaneously dispatch to both proxies:
    - **Modern clients** receive independent priority-blended glTF tracks (locomotion on priority 0, actions on priority 1).
-   - **Legacy clients** receive dynamically computed single-timeline frame ranges (`walk`, `walk_mine`, etc.).
+   - **Legacy clients** receive dynamically computed single-timeline frame ranges (`walk`, `walk_mine`, `walk_eat`, `walk_bow_aim`, etc.).
 6. **Bone Override Throttling (`bone_overrides.lua`)**: Head gaze and look-pitch orientation overrides are passed through an angular threshold filter:
    - If the rotational delta across pitch, yaw, and roll is less than $0.08$ radians ($\approx 4.5^\circ$), packet transmission is skipped.
    - Saves substantial server network bandwidth during rapid client mouse look without any perceptible loss of visual fidelity.
+7. **Natural Head & Dual-Arm Look Tracking (`head_tracking.lua`)**: Naturally and smoothly rotates the character's `Head` and arm bones (`Arm_Right`, `Arm_Left`) to match player camera gaze (pitch, yaw, and lateral neck roll):
+   - **Continuous Exponential Smoothing & Client Interpolation**: Continuous exponential decay damping ($\lambda = 14.0\text{ s}^{-1}$) coupled with Luanti hardware interpolation (`0.1`s in `set_bone_override`) eliminates stepping and delivers fluid 60–144 Hz motion.
+   - **Horizontal Gaze Leading & Body Turn Lag**: When free-standing, the head anticipates horizontal camera rotations up to $\pm 35^\circ$ with subtle lateral neck roll ($-Y \times 0.08$) while the torso smoothly catches up over $\approx 0.2$s. When attached to vehicles or seats, full horizontal gaze tracking operates within $\pm 75^\circ$.
+   - **Biomechanical Pitch Clamping**: Anatomically clamped pitch ($-75^\circ$ zenith to $+70^\circ$ nadir).
+   - **Bind Pose Preservation**: Omits bone position overrides when nil, ensuring bones remain anchored to their model rest height without collapsing into the torso.
+   - **Dual-Arm Synchronized Pitch**: Naturally tilts both arms (-X elevation when looking up, +X depression when looking down) using relative bone overrides (`absolute = false`), allowing keyframed animations (walk, swing, pull) to compose seamlessly with look pitch:
+     - *Bow Aiming (`aiming_bow`, `bow_aim`)*: Full dual-arm pitch synchronization with kinematic compensation on `Arm_Left` ($Y$ and $Z$ axes), ensuring both hands remain firmly on the bow grip across all vertical pitch angles rather than dropping to the flank.
+     - *Mining & Melee (`mine`, `attack_slash`, `attack_thrust`)*: Dominant right arm receives 85% action weight while the left arm maintains subtle posture stability (17.5%).
+     - *Shield Blocking (`block`)*: Left arm raises/pitches at 85% action weight while right arm provides subtle stability.
+     - *Idle & Locomotion*: Subtle 35% natural pitch response giving lifelike upper-body presence.
+   - **Posture Awareness**: Smoothly suppresses tracking during prone postures (e.g. `lay` in bed or `freeze`) and balances weight during damage flinch (`hurt`).
+   - **Idle Quiescence (Sleep State)**: Zero socket packets are transmitted across the server network when gaze is stationary.
 
 ---
 
@@ -112,7 +130,7 @@ In multiplayer environments, servers frequently host a mix of modern Luanti 5.17
 ```
 
 ### Why Bone Masking Matters
-In traditional single-track models (`.b3d`), digging while walking requires a separately baked hybrid animation (`walk_mine`). If you sprint while digging, the engine either cancels sprinting or slides the feet unnaturally.
+In traditional single-track models (`.b3d`), actions performed while walking (such as digging, eating, or holding a drawn bow) require separately baked hybrid animations (`walk_mine`, `walk_eat`, `walk_bow_aim`). If you sprint while digging, the engine either cancels sprinting or slides the feet unnaturally.
 
 With glTF multi-track:
 - **Zero Foot-Sliding**: Locomotion tracks drive the pelvis and legs according to actual physics and velocity.
@@ -257,15 +275,15 @@ x_player_api.refresh_observers()
 
 ### Bridge Mod Pattern & 3rd-Party Integration (e.g. 3d_armor)
 
-Third-party mods that modify character models or attachment layers (such as `3d_armor`, `skinsdb`, or `wieldview`) can seamlessly integrate with the dual-model visual proxy architecture via a companion "bridge" mod (such as `x_player_bridge`).
+Because `x_player_api` is a pure API that intentionally avoids bundling third-party mod logic directly, third-party mods that modify character models or attachment layers (such as `3d_armor`, `skinsdb`, or `wieldview`) can seamlessly integrate with the dual-model visual proxy architecture via a companion "bridge" mod (such as `x_player_bridge`).
 
 #### 1. Registering a Dual-Model Definition with Base Model Inheritance
 
-Instead of manually duplicating 70+ lines of animation frame ranges and tracks, leverage `base_model = "character.b3d"` to automatically inherit all 28 canonical animations (`animations` and `animations_glb`), hitboxes (`collisionbox`), eye height, step height, and playback speeds:
+Instead of manually duplicating 70+ lines of animation frame ranges and tracks, leverage `base_model = "character.b3d"` to automatically inherit all 30 canonical animations (`animations` and `animations_glb`), hitboxes (`collisionbox`), eye height, step height, and playback speeds:
 
 ```lua
 x_player_api.register_model("3d_armor_character.b3d", {
-    base_model = "character.b3d",          -- Inherits all 28 B3D + GLB animations and physics
+    base_model = "character.b3d",          -- Inherits all 30 B3D + GLB animations and physics
     mesh = "3d_armor_character.b3d",       -- Served to legacy clients
     mesh_glb = "3d_armor_character.glb",   -- Served to modern 5.17.0+ clients
     textures = {
@@ -640,7 +658,7 @@ player_api.set_model_format("glb") -- Switches to character.glb / 3d_armor_chara
 
 ### Dual-Format Position & Orientation Parity (B3D vs GLB)
 
-When switching between `character.glb` (glTF 2.0) and `character.b3d` (Blitz3D), held items attached to `Arm_Right` maintain 100% visual parity, alignment, and handle placement in the palm of the hand. Understanding why this requires automated compensation is important when working with low-level bone attachments, exporters, or custom player models:
+When switching between `character.glb` (glTF 2.0) and `character.b3d` (Blitz3D), held items attached to `Arm_Right` and skeletal bone overrides (`Head`, `Arm_Right`, `Arm_Left`) maintain 100% visual parity, alignment, and coordinate integrity. Understanding why this requires automated compensation is important when working with low-level bone attachments, exporters, or custom player models:
 
 #### Root Cause of the Discrepancy
 
@@ -650,16 +668,19 @@ When switching between `character.glb` (glTF 2.0) and `character.b3d` (Blitz3D),
    The legacy Blitz3D exporter maps Blender's Z-up right-handed coordinate space into Blitz3D's Y-up left-handed space by applying a hardcoded transformation matrix on bone definitions:
    $$\text{BONE\_TRANS\_MATRIX} = \begin{bmatrix} -1 & 0 & 0 & 0 \\ 0 & 0 & -1 & 0 \\ 0 & -1 & 0 & 0 \\ 0 & 0 & 0 & 1 \end{bmatrix}$$
    This transformation matrix effectively introduces a 180° rotation around the X-axis for every bone relative to Blender space.
-3. **Axis & Position Inversion on `Arm_Right`**:
+3. **Axis & Position Inversion on Bone Rigs**:
    Because of this 180° X-axis flip in exported B3D files:
    - The local orientation axes are inverted: an entity pointing forward along $+Z$ in GLB space points backward along $-Z$ in B3D without rotation compensation.
    - The local position coordinates are reflected: in GLB, $Z_{\text{world}} = -Z_{\text{bone}}$ (so $Z_{\text{bone}} = -3.5$ maps to $Z_{\text{world}} = +3.5$), whereas in B3D, $Z_{\text{world}} = +Z_{\text{bone}}$. Without position compensation, an item with $Z = -3.5$ would be displaced 7 units backward behind the player rather than sitting forward with its handle in the palm!
+   - Bone override Euler rotations are inverted: in B3D, pitch ($X$), yaw ($Y$), and roll ($Z$) rotate in the negated direction relative to GLB. Without runtime compensation, negative pitch tilts the B3D head downward rather than upward, and positive yaw flairs `Arm_Left` outward to the flank during bow aiming instead of drawing inward across the chest.
 4. **glTF 2.0 (`.glb`) Exporter**:
    Blender's official glTF 2.0 exporter preserves native Blender joint coordinate frames and applies axis conversion at the scene root node rather than inverting individual bone coordinate spaces.
 
-#### Automated Runtime Compensation in `wield.lua`
+#### Automated Runtime Compensation in `wield.lua` & `bone_overrides.lua`
 
-Rather than altering the canonical Blitz3D exporter (which would break compatibility with existing Luanti B3D animations and third-party models), `x_player_api` handles this discrepancy dynamically at runtime in `wield.lua`. When `player_api.get_model_format()` returns `"b3d"`, it automatically applies position reflection along X and Z alongside Euler rotation compensation to the attachment parameters. This completely counteracts the B3D exporter's coordinate flip, ensuring all items (swords, tools, torches, bows, blocks) point forward and have their handles positioned squarely in the palm of the hand identically across both GLB and B3D.
+Rather than altering the canonical Blitz3D exporter (which would break compatibility with existing Luanti B3D animations and third-party models), `x_player_api` handles this discrepancy dynamically at runtime:
+* **Wield Item Attachment Compensation (`wield.lua`)**: When `player_api.get_model_format()` returns `"b3d"`, it automatically applies position reflection along X and Z alongside Euler rotation compensation to the attachment parameters. This completely counteracts the B3D exporter's coordinate flip, ensuring all items (swords, tools, torches, bows, blocks) point forward and have their handles positioned squarely in the palm of the hand identically across both GLB and B3D.
+* **Dual-Format Bone Override Compensation (`bone_overrides.lua`)**: When dispatching bone transformations to `proxies.b3d` (or in pure native B3D mode), `x_player_api.set_bone_override` automatically negates Euler rotation components ($\vec{R}_{\text{b3d}} = \{-R_x, -R_y, -R_z\}$) and reflects translation ($\vec{P}_{\text{b3d}} = \{-P_x, P_y, -P_z\}$) for symmetrical single-axis bones (e.g. `Head`, `Arm_Right`). For complex asymmetric poses like `Arm_Left` in bow aim, it applies dedicated non-linear inverse kinematics to keep the left hand firmly locked onto the bow grip across the full vertical pitch arc without flaring outward.
 
 ### B3D Rotation Wiggling Workaround (Luanti Issue #15692)
 
