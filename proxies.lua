@@ -10,6 +10,9 @@ x_player_api = x_player_api or player_api
 ---@type table<string, PlayerProxies> Active visual proxy entity instances by player name
 x_player_api.active_proxies = {}
 
+---Safe lighting collisionbox for visual proxies to sample ambient light within the player's core volume.
+local PROXY_LIGHTING_BOX = x_player_api.PROXY_LIGHTING_BOX or {-0.25, 0.1, -0.25, 0.25, 1.75, 0.25}
+
 -- GLB Visual Proxy
 core.register_entity("x_player_api:visual_glb", {
 	initial_properties = {
@@ -20,6 +23,7 @@ core.register_entity("x_player_api:visual_glb", {
 		mesh = "character.glb",
 		textures = {"character.png"},
 		visual_size = {x = 1, y = 1},
+		collisionbox = PROXY_LIGHTING_BOX,
 		use_texture_alpha = false,
 		backface_culling = false,
 		is_visible = true,
@@ -41,6 +45,7 @@ core.register_entity("x_player_api:visual_b3d", {
 		mesh = "character.b3d",
 		textures = {"character.png"},
 		visual_size = {x = 1, y = 1},
+		collisionbox = PROXY_LIGHTING_BOX,
 		use_texture_alpha = false,
 		backface_culling = false,
 		is_visible = true,

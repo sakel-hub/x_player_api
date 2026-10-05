@@ -539,5 +539,28 @@ describe("Visual Proxies & Observer Cohorts", function()
 		assert.equal(1, glb_props.visual_size.x)
 		assert.equal(1, b3d_props.visual_size.x)
 	end)
+
+	it("configures safe lighting collisionbox on visual proxies to prevent subterranean clipping", function()
+		local glb_def = core.registered_entities["x_player_api:visual_glb"]
+		local b3d_def = core.registered_entities["x_player_api:visual_b3d"]
+		assert.is_not_nil(glb_def.initial_properties.collisionbox)
+		assert.is_not_nil(b3d_def.initial_properties.collisionbox)
+
+		local expected = x_player_api.PROXY_LIGHTING_BOX
+		assert.is_true(x_player_api.collisionbox_equals(expected, glb_def.initial_properties.collisionbox))
+		assert.is_true(x_player_api.collisionbox_equals(expected, b3d_def.initial_properties.collisionbox))
+
+		local proxies = x_player_api.get_visual_proxies(player)
+		local glb_box = proxies.glb:get_properties().collisionbox
+		local b3d_box = proxies.b3d:get_properties().collisionbox
+		assert.is_true(x_player_api.collisionbox_equals(expected, glb_box))
+		assert.is_true(x_player_api.collisionbox_equals(expected, b3d_box))
+
+		-- Verify bottom Y is above 0 to prevent sampling subterranean floor block
+		assert.is_true(expected[2] > 0, "Lighting box bottom Y must be > 0")
+		-- Verify horizontal extent <= 0.25 to stay within player physical collision radius (0.3)
+		assert.is_true(expected[4] <= 0.25, "Lighting box max X must be <= 0.25")
+		assert.is_true(expected[6] <= 0.25, "Lighting box max Z must be <= 0.25")
+	end)
 end)
 

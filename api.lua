@@ -88,6 +88,11 @@ end
 ---@type Vector2 Animation frame range with zero duration
 local ZERO_RANGE = {x = 0, y = 0}
 
+---Safe lighting collisionbox for visual proxies to sample ambient light within the player's core volume.
+---Prevents clipping into solid nodes or subterranean floors in GenericCAO::getLightPosition.
+---@type number[]
+x_player_api.PROXY_LIGHTING_BOX = {-0.25, 0.1, -0.25, 0.25, 1.75, 0.25}
+
 ---@type table<string, PlayerAnimationData> Internal map of per-player state tables
 x_player_api._players = x_player_api._players or {}
 ---@type table<string, PlayerAnimationData>
@@ -451,6 +456,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_glb,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					collisionbox = x_player_api.PROXY_LIGHTING_BOX,
 					use_texture_alpha = texture_alpha,
 					is_visible = true,
 				})
@@ -466,6 +472,7 @@ function x_player_api.set_model(player, model_name)
 					mesh = mesh_b3d,
 					textures = textures,
 					visual_size = model.visual_size or {x = 1, y = 1},
+					collisionbox = x_player_api.PROXY_LIGHTING_BOX,
 					use_texture_alpha = texture_alpha,
 					is_visible = true,
 				})
