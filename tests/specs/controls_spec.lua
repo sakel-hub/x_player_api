@@ -852,6 +852,27 @@ describe("Controls & Semantic State Engine", function()
 		player_api.player_attached[name] = false
 	end)
 
+	it("respects parent entity player_animation when player is attached", function()
+		player_api.set_model(player, "character.glb")
+		player_api.set_animation(player, "stand")
+
+		local mock_parent_ent = {
+			name = "custom:standing_cage",
+			player_animation = "stand",
+		}
+		local mock_parent_obj = {
+			is_valid = function() return true end,
+			get_luaentity = function() return mock_parent_ent end,
+		}
+		local orig_get_attach = player.get_attach
+		player.get_attach = function() return mock_parent_obj end
+
+		player_api.globalstep(0.1)
+
+		assert.equal("stand", player_api.get_animation(player).animation)
+		player.get_attach = orig_get_attach
+	end)
+
 	it("passes is_attached to locomotion evaluators allowing external custom vehicle locomotion", function()
 		player_api.set_model(player, "character.glb")
 		local name = player:get_player_name()

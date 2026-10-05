@@ -756,7 +756,15 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 		local current_anim = x_player_api.get_animation(player)
 		local current_anim_name = current_anim and current_anim.animation
 		local loco
-		if current_anim_name == "lay" or (pstate and pstate.active_emote == "lay") then
+		local name = player:get_player_name()
+		local custom_att = x_player_api.player_attached and x_player_api.player_attached[name]
+		local parent = player:get_attach()
+		local parent_ent = parent and parent:is_valid() and parent:get_luaentity()
+		if type(custom_att) == "string" and custom_att ~= "" then
+			loco = custom_att
+		elseif parent_ent and parent_ent.player_animation then
+			loco = parent_ent.player_animation
+		elseif current_anim_name == "lay" or (pstate and pstate.active_emote == "lay") then
 			loco = "lay"
 		else
 			loco = "sit"
