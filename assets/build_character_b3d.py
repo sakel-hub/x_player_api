@@ -33,6 +33,9 @@ Features:
     bow           = 585..645
     fly           = 650..660
     hover         = 665..725
+    equip         = 730..740
+    walk_eat      = 746..765
+    walk_bow_aim  = 770..789
 """
 
 import bpy
@@ -1094,6 +1097,51 @@ def eval_equip(t, dur):
         },
     }
 register_anim('equip', 730, 740, eval_equip)
+
+# 29. WALK_EAT (746..765, duration 20) - Walk Cycle while Actively Eating
+def eval_walk_eat(t, dur):
+    walk_data = eval_walk(t, dur)
+    phase = 2.0 * math.pi * (t / 10.0)
+    chew_factor = 0.5 * (1.0 - math.cos(phase))
+    walk_data['Arm_Right'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (145.0 + 7.0 * chew_factor, 0.0, -65.0 - 3.0 * chew_factor),
+    }
+    walk_data['Head'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (8.0 + 6.0 * chew_factor, 0.0, 0.0),
+    }
+    return walk_data
+register_anim('walk_eat', 746, 765, eval_walk_eat)
+
+# 30. WALK_BOW_AIM (770..789, duration 20) - Walk Cycle while Aiming / Holding Charged Bow
+def eval_walk_bow_aim(t, dur):
+    walk_data = eval_walk(t, dur)
+    # Bow tension micro-oscillation synchronized with athletic walk stride
+    phase = math.sin(2.0 * math.pi * (t / 20.0))
+    s = math.sin(2.0 * math.pi * (t / 20.0))
+    # Focused torso lean forward into stride with stabilized yaw
+    walk_data['Body'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (-4.0, 0.5 * s, -0.8 * s),
+    }
+    # Head focused straight forward at target
+    walk_data['Head'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (0.0, 8.0 + 0.5 * phase, 0.0),
+    }
+    # Right arm maintains full draw tension on bowstring
+    walk_data['Arm_Right'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (80.0 + 0.5 * phase, -10.0 + 0.5 * phase, 5.0 - 0.25 * phase),
+    }
+    # Left arm holds bow firmly forward across chest
+    walk_data['Arm_Left'] = {
+        'loc': (0.0, 0.0, 0.0),
+        'rot': (75.0 + 0.5 * phase, 35.0 + 0.5 * phase, 30.0 + 0.5 * phase),
+    }
+    return walk_data
+register_anim('walk_bow_aim', 770, 789, eval_walk_bow_aim)
 
 
 UPPER_BODY_ACTIONS = {

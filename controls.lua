@@ -1117,7 +1117,19 @@ function x_player_api.get_player_state(player, time_now)
 
 	-- If admin test animation is active, override locomotion and action
 	if pstate and pstate.test_anim then
-		if pstate.test_anim_is_action then
+		if pstate.test_anim == "walk_bow_aim" then
+			loco = "walk"
+			action = "bow_aim"
+			is_moving = true
+		elseif pstate.test_anim == "walk_eat" then
+			loco = "walk"
+			action = "eat"
+			is_moving = true
+		elseif pstate.test_anim == "walk_mine" then
+			loco = "walk"
+			action = "mine"
+			is_moving = true
+		elseif pstate.test_anim_is_action then
 			loco = "stand"
 			action = pstate.test_anim
 		else

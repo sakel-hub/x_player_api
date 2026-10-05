@@ -11,7 +11,7 @@ local CANONICAL_SHOWCASE_ORDER = {
 	"jump", "fall", "swim", "climb", "fly", "hover", "sit", "lay", "bow",
 	-- Actions & Combat (Track 1)
 	"mine", "walk_mine", "block", "attack_slash", "attack_thrust",
-	"eat", "bow_aim", "bow_shoot", "hurt", "equip",
+	"eat", "walk_eat", "bow_aim", "walk_bow_aim", "bow_shoot", "hurt", "equip",
 	-- Gestures (Track 1)
 	"wave", "point", "cheer"
 }
@@ -151,14 +151,25 @@ local function step_anim_test(name, session, idx)
 			end
 		end
 	else
-		x_player_api.play_action(player, nil, true, true)
-		x_player_api.set_animation(player, anim_name, speed, loop, true, false)
+		if anim_name == "walk_bow_aim" then
+			x_player_api.play_action(player, "bow_aim", true, true)
+			x_player_api.set_animation(player, "walk", speed, loop, true, false)
+		elseif anim_name == "walk_eat" then
+			x_player_api.play_action(player, "eat", true, true)
+			x_player_api.set_animation(player, "walk", speed, loop, true, false)
+		elseif anim_name == "walk_mine" and not (model and model.animations_glb and model.animations_glb.walk_mine) then
+			x_player_api.play_action(player, "mine", true, true)
+			x_player_api.set_animation(player, "walk", speed, loop, true, false)
+		else
+			x_player_api.play_action(player, nil, true, true)
+			x_player_api.set_animation(player, anim_name, speed, loop, true, false)
+		end
 		if x_player_api.step_b3d_animation then
 			local state = x_player_api.get_player_state and x_player_api.get_player_state(player) or {}
 			state.test_anim = anim_name
 			x_player_api.step_b3d_animation(player, state, model, speed)
 		end
-		if anim_name == "eat" then
+		if anim_name == "eat" or anim_name == "walk_eat" then
 			local time_now = core.get_us_time() * 0.000001
 			pstate.eat_until = time_now + duration
 			pstate.eat_action = "eat"

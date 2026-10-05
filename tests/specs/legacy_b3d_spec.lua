@@ -183,6 +183,84 @@ describe("B3D Legacy Single-Timeline Animation Subsystem", function()
 		assert.equal(765, model.animations.walk_eat.y)
 	end)
 
+	it("verifies walk_bow_aim animation starts at 770 and ends at 789 on character.b3d", function()
+		local model = player_api.registered_models["character.b3d"]
+		assert.is_not_nil(model)
+		assert.is_not_nil(model.animations.walk_bow_aim)
+		assert.equal(770, model.animations.walk_bow_aim.x)
+		assert.equal(789, model.animations.walk_bow_aim.y)
+	end)
+
+	it("animates walk_bow_aim on B3D models when moving while aiming or holding charged bow", function()
+		player_api.set_model_format("b3d")
+		player_api.set_model(player, "character.b3d")
+		local proxies = player_api.get_visual_proxies(player)
+		local b3d = proxies.b3d
+		assert.is_not_nil(b3d)
+
+		-- Stationary aiming bow: resolves to bow_aim (451..466)
+		player.get_wielded_item = function() return ItemStack("x_bows:bow_wood_charged") end
+		player.get_player_control = function() return {RMB = true} end
+		player.get_velocity = function() return {x = 0, y = 0, z = 0} end
+
+		player_api.globalstep(0.05)
+		local pdata = player_api.get_animation(player)
+		assert.equal("bow_aim", pdata.animation_b3d)
+		local b3d_model = player_api.registered_models["character.b3d"]
+		assert.equal(b3d_model.animations.bow_aim.x, player._last_animation.anim.x)
+		assert.equal(b3d_model.animations.bow_aim.y, player._last_animation.anim.y)
+
+		-- Moving forward while aiming bow: resolves to walk_bow_aim (770..789)
+		player.get_player_control = function() return {RMB = true, up = true} end
+		player.get_velocity = function() return {x = 0, y = 0, z = 4.0} end
+
+		player_api.globalstep(0.05)
+		pdata = player_api.get_animation(player)
+		assert.equal("walk_bow_aim", pdata.animation_b3d)
+		assert.equal(770, player._last_animation.anim.x)
+		assert.equal(789, player._last_animation.anim.y)
+		assert.equal(0, player._last_animation.blend)
+		local last_call = b3d._animation_calls[#b3d._animation_calls]
+		assert.is_not_nil(last_call)
+		assert.equal(770, last_call[1].x)
+		assert.equal(789, last_call[1].y)
+
+		-- Reset controls and format
+		player.get_player_control = function() return {} end
+		player.get_velocity = function() return {x = 0, y = 0, z = 0} end
+		player_api.set_model_format("glb")
+	end)
+
+	it("previews walk_bow_aim composite across both GLB and B3D via test_anim", function()
+		-- In GLB mode: previews as walk on track 0 and bow_aim on track 1
+		player_api.set_model_format("glb")
+		player_api.set_model(player, "character.glb")
+		local ok, _ = player_api.start_anim_test(player, 4.0, "walk_bow_aim")
+		assert.is_true(ok)
+
+		player_api.globalstep(0.05)
+		local state = player_api.get_player_state(player)
+		assert.equal("walk", state.locomotion)
+		assert.equal("bow_aim", state.action)
+		assert.is_true(state.moving)
+
+		local pdata = player_api.get_animation(player)
+		assert.equal("walk_bow_aim", pdata.animation_b3d)
+
+		-- In B3D mode: evaluates directly to single-timeline walk_bow_aim (770..789)
+		player_api.set_model_format("b3d")
+		player_api.set_model(player, "character.b3d")
+		player_api.globalstep(0.05)
+
+		pdata = player_api.get_animation(player)
+		assert.equal("walk_bow_aim", pdata.animation_b3d)
+		assert.equal(770, player._last_animation.anim.x)
+		assert.equal(789, player._last_animation.anim.y)
+
+		player_api.stop_anim_test(player:get_player_name(), true)
+		player_api.set_model_format("glb")
+	end)
+
 	it("registers freeze animation consistently across b3d and glb models", function()
 		local b3d_model = player_api.registered_models["character.b3d"]
 		local glb_model = player_api.registered_models["character.glb"]

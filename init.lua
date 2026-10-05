@@ -36,6 +36,7 @@ x_player_api.register_model("character.b3d", {
 		mine          = {x = 190, y = 200, is_action = true},
 		walk_mine     = {x = 201, y = 220},
 		walk_eat      = {x = 746, y = 765},
+		walk_bow_aim  = {x = 770, y = 789},
 		sprint        = {x = 221, y = 237},
 		jump          = {x = 240, y = 250},
 		fall          = {x = 251, y = 261},
