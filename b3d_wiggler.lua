@@ -253,8 +253,36 @@ end
 ---@return string|nil full_path
 local function find_model_path(filename)
 	if not engine then return nil end
-	local this_mod = engine.get_current_modname and engine.get_current_modname() or "x_player_api"
-	local this_path = engine.get_modpath and engine.get_modpath(this_mod)
+
+	-- Priority 1: Check bridge mod (x_player_bridge) if present, which bundles modern player models
+	if engine.get_modpath then
+		local bridge_path = engine.get_modpath("x_player_bridge")
+		if bridge_path then
+			local candidate = bridge_path .. "/models/" .. filename
+			local f = io.open(candidate, "rb")
+			if f then
+				f:close()
+				return candidate
+			end
+		end
+	end
+
+	-- Priority 2: Check x_player_api base mod models
+	if engine.get_modpath then
+		local api_path = engine.get_modpath("x_player_api")
+		if api_path then
+			local candidate = api_path .. "/models/" .. filename
+			local f = io.open(candidate, "rb")
+			if f then
+				f:close()
+				return candidate
+			end
+		end
+	end
+
+	-- Priority 3: Check currently executing registering mod
+	local this_mod = engine.get_current_modname and engine.get_current_modname()
+	local this_path = this_mod and engine.get_modpath and engine.get_modpath(this_mod)
 	if this_path then
 		local candidate = this_path .. "/models/" .. filename
 		local f = io.open(candidate, "rb")
@@ -264,8 +292,11 @@ local function find_model_path(filename)
 		end
 	end
 
+	-- Priority 4: Search remaining active mods in reverse order
 	if engine.get_modnames and engine.get_modpath then
-		for _, mod in ipairs(engine.get_modnames()) do
+		local modnames = engine.get_modnames()
+		for i = #modnames, 1, -1 do
+			local mod = modnames[i]
 			local mpath = engine.get_modpath(mod)
 			if mpath then
 				local candidate = mpath .. "/models/" .. filename
