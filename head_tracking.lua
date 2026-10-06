@@ -15,6 +15,9 @@ x_player_api = x_player_api or player_api
 ---@field fly_pitch_offset number Baseline upward pitch offset when flying in radians (default: -75 deg)
 ---@field fly_pitch_up_max number Maximum upward pitch in flight in radians (default: 85 deg)
 ---@field fly_pitch_down_max number Maximum downward pitch in flight in radians (default: 10 deg)
+---@field swim_pitch_offset number Baseline upward pitch offset when swimming in radians (default: -75 deg)
+---@field swim_pitch_up_max number Maximum upward pitch when swimming in radians (default: 85 deg)
+---@field swim_pitch_down_max number Maximum downward pitch when swimming in radians (default: 10 deg)
 ---@field arm_pitch_up_max number Maximum upward pitch for arms in radians
 ---@field arm_pitch_down_max number Maximum downward pitch for arms in radians
 ---@field arm_idle_weight number Subtle pitch weight applied to arms during idle/movement (default: 0.35)
@@ -72,6 +75,9 @@ head_tracking.config = {
 	fly_pitch_offset = -math.rad(75.0),
 	fly_pitch_up_max = math.rad(85.0),
 	fly_pitch_down_max = math.rad(10.0),
+	swim_pitch_offset = -math.rad(75.0),
+	swim_pitch_up_max = math.rad(85.0),
+	swim_pitch_down_max = math.rad(10.0),
 	arm_pitch_up_max = math.rad(75.0),
 	arm_pitch_down_max = math.rad(70.0),
 	arm_idle_weight = 0.35,
@@ -158,13 +164,17 @@ local function evaluate_target_angles(player, cfg, target, ctx, pstate, dtime, s
 	-- Luanti look vertical is negative when looking up, positive when looking down.
 	-- In Luanti character models, local head bone pitch rotates up on -X and down on +X.
 	local is_fly = semantic_state and (semantic_state.locomotion == "fly")
+	local is_swim = semantic_state and (semantic_state.locomotion == "swim")
 	local target_pitch = look_vert
 
-	if is_fly then
-		local fly_offset = cfg.fly_pitch_offset or -math.rad(75.0)
-		target_pitch = fly_offset + look_vert * 0.75
-		local up_max = cfg.fly_pitch_up_max or math.rad(85.0)
-		local down_max = cfg.fly_pitch_down_max or math.rad(10.0)
+	if is_fly or is_swim then
+		local offset = is_swim and (cfg.swim_pitch_offset or -math.rad(75.0))
+			or (cfg.fly_pitch_offset or -math.rad(75.0))
+		target_pitch = offset + look_vert * 0.75
+		local up_max = is_swim and (cfg.swim_pitch_up_max or math.rad(85.0))
+			or (cfg.fly_pitch_up_max or math.rad(85.0))
+		local down_max = is_swim and (cfg.swim_pitch_down_max or math.rad(10.0))
+			or (cfg.fly_pitch_down_max or math.rad(10.0))
 		if target_pitch < -up_max then
 			target_pitch = -up_max
 		elseif target_pitch > down_max then

@@ -583,6 +583,80 @@ describe("Head Bone Look Tracking Subsystem", function()
 		assert.near(expected_down, rot_down.x, 0.02, "Head pitch must track downward to scan terrain")
 	end)
 
+	it("naturally offsets head pitch in swimming so head looks forward along swim path", function()
+		-- Level swimming with horizontal camera (look_vertical = 0)
+		player:set_look_vertical(0)
+		local sem_state = {locomotion = "swim"}
+
+		for _ = 1, 25 do
+			x_player_api.step_head_tracking(player, 0.05, sem_state)
+		end
+
+		local rot = x_player_api.get_head_rotation(player)
+		assert.is_not_nil(rot)
+		-- Head must be pitched upward relative to horizontal torso by -75 deg to look forward
+		assert.near(-math.rad(75), rot.x, 0.02, "Head must offset to -75 deg in level swim")
+
+		-- Looking up by 30 deg while swimming: cranes up towards zenith clamp (-85 deg)
+		player:set_look_vertical(-math.rad(30))
+		for _ = 1, 25 do
+			x_player_api.step_head_tracking(player, 0.05, sem_state)
+		end
+		local rot_up = x_player_api.get_head_rotation(player)
+		local expected_up = math.max(-math.rad(85), -math.rad(75) - math.rad(30) * 0.75)
+		assert.near(expected_up, rot_up.x, 0.02, "Head pitch must track upward gaze within zenith limit")
+
+		-- Looking down by 60 deg while swimming: relaxes forward to scan seabed
+		player:set_look_vertical(math.rad(60))
+		for _ = 1, 25 do
+			x_player_api.step_head_tracking(player, 0.05, sem_state)
+		end
+		local rot_down = x_player_api.get_head_rotation(player)
+		local expected_down = -math.rad(75) + math.rad(60) * 0.75
+		assert.near(expected_down, rot_down.x, 0.02, "Head pitch must track downward to scan seabed")
+	end)
+
+	it("applies standard upright head tracking when stationary in water", function()
+		-- Standing still in water (in water, but locomotion is stand)
+		player:set_look_vertical(math.rad(25))
+		local sem_state = {locomotion = "stand", swimming = true}
+
+		for _ = 1, 25 do
+			x_player_api.step_head_tracking(player, 0.05, sem_state)
+		end
+
+		local rot = x_player_api.get_head_rotation(player)
+		assert.is_not_nil(rot)
+		-- Normal upright tracking without -75 deg offset
+		assert.near(math.rad(25), rot.x, 0.02, "Stationary water idling must not apply prone offset")
+	end)
+
+	it("respects custom swim_pitch_offset and pitch limits when configured", function()
+		local cfg = x_player_api.head_tracking.config
+		local orig_offset = cfg.swim_pitch_offset
+		local orig_up = cfg.swim_pitch_up_max
+		local orig_down = cfg.swim_pitch_down_max
+
+		cfg.swim_pitch_offset = -math.rad(60)
+		cfg.swim_pitch_up_max = math.rad(70)
+		cfg.swim_pitch_down_max = math.rad(20)
+
+		player:set_look_vertical(0)
+		local sem_state = {locomotion = "swim"}
+
+		for _ = 1, 25 do
+			x_player_api.step_head_tracking(player, 0.05, sem_state)
+		end
+
+		local rot = x_player_api.get_head_rotation(player)
+		assert.near(-math.rad(60), rot.x, 0.02, "Custom swim offset must be applied")
+
+		-- Restore config
+		cfg.swim_pitch_offset = orig_offset
+		cfg.swim_pitch_up_max = orig_up
+		cfg.swim_pitch_down_max = orig_down
+	end)
+
 	it("refreshes bone overrides immediately on refresh_head_tracking", function()
 		player:set_look_vertical(math.rad(30))
 		for _ = 1, 20 do

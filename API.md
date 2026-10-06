@@ -107,6 +107,9 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `pitch_up_max` | `number` | Maximum looking up limit in radians |
 | `settle_threshold` | `number` | Convergence threshold in radians to enter sleep state |
 | `smooth_speed` | `number` | Exponential decay rate in 1/seconds for head interpolation |
+| `swim_pitch_down_max` | `number` | Maximum downward pitch when swimming in radians (default: 10 deg) |
+| `swim_pitch_offset` | `number` | Baseline upward pitch offset when swimming in radians (default: -75 deg) |
+| `swim_pitch_up_max` | `number` | Maximum upward pitch when swimming in radians (default: 85 deg) |
 | `yaw_limit_attached` | `number` | Clamped horizontal rotation limit when attached in radians |
 | `yaw_limit_free` | `number` | Clamped horizontal rotation lead when free in radians |
 
