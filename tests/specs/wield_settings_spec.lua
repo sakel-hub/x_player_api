@@ -219,4 +219,81 @@ describe("Wield Item Feature Settings", function()
 		player_api.set_wield_item_visibility(player, false)
 		assert.is_false(player_api.get_wield_item_visibility(player))
 	end)
+
+	it("manages left-hand 1st person view visibility globally and per-player", function()
+		assert.is_true(player_api.enable_left_wield_first_person)
+		assert.is_true(player_api.get_left_wield_first_person(player))
+
+		local ent = player_api.attach_left_wield_item(player, "default:torch")
+		assert.is_not_nil(ent)
+		assert.equal("Arm_Left", ent._attach.bone)
+		assert.is_true(ent._attach.forced)
+
+		-- Set per-player 1st person view to false
+		player_api.set_left_wield_first_person(player, false)
+		assert.is_false(player_api.get_left_wield_first_person(player))
+		assert.is_false(ent._attach.forced)
+
+		-- Reset per-player to nil, reverting to global true
+		player_api.set_left_wield_first_person(player, nil)
+		assert.is_true(player_api.get_left_wield_first_person(player))
+		assert.is_true(ent._attach.forced)
+
+		-- Set global 1st person view to false
+		player_api.set_global_left_wield_first_person(false)
+		assert.is_false(player_api.enable_left_wield_first_person)
+		assert.is_false(player_api.get_left_wield_first_person(player))
+		assert.is_false(ent._attach.forced)
+
+		-- Reset global setting back to true
+		player_api.set_global_left_wield_first_person(true)
+		assert.is_true(player_api.get_left_wield_first_person(player))
+		assert.is_true(ent._attach.forced)
+
+		player_api.remove_left_wield_item(player)
+		assert.is_nil(player_api.get_left_wield_entity(player))
+	end)
+
+	it("attaches and updates left hand wield item with options", function()
+		local ent = player_api.attach_left_wield_item(player, "default:shield_wood", {first_person = true})
+		assert.is_not_nil(ent)
+		assert.is_true(player_api.get_left_wield_first_person(player))
+		assert.is_true(ent._attach.forced)
+		assert.equal("Arm_Left", ent._attach.bone)
+		assert.equal("default:shield_wood", player_api.get_left_wield_item(player))
+
+		player_api.update_left_wield_item(player, "default:sword_steel")
+		assert.equal("default:sword_steel", player_api.get_left_wield_item(player))
+
+		player_api.remove_left_wield_item(player)
+		assert.is_nil(player_api.get_left_wield_entity(player))
+		assert.equal("", player_api.get_left_wield_item(player))
+	end)
+
+	it("attaches left hand 3D mesh model with override_transform", function()
+		local ent = player_api.attach_left_wield_item(player, "x_player_armor:shield_steel", {
+			mesh = "x_player_armor_shield.glb",
+			textures = {"x_player_armor_steel.png"},
+			override_transform = true,
+			pos_glb = {x = 0, y = 0, z = 0},
+			rot_glb = {x = 180, y = 0, z = 0},
+			pos_b3d = {x = 0, y = 0, z = 0},
+			rot_b3d = {x = 180, y = 180, z = 0},
+			first_person = true,
+		})
+		assert.is_not_nil(ent)
+		local props = ent:get_properties()
+		assert.equal("mesh", props.visual)
+		assert.equal("x_player_armor_shield.glb", props.mesh)
+		assert.equal("x_player_armor_steel.png", props.textures[1])
+		assert.equal("Arm_Left", ent._attach.bone)
+		assert.equal(0, ent._attach.pos.x)
+		assert.equal(0, ent._attach.pos.y)
+		assert.equal(0, ent._attach.pos.z)
+		assert.equal(180, ent._attach.rot.x)
+		assert.is_true(ent._attach.forced)
+
+		player_api.remove_left_wield_item(player)
+		assert.is_nil(player_api.get_left_wield_entity(player))
+	end)
 end)

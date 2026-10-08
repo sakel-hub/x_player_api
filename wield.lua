@@ -22,12 +22,16 @@
 ---@field b3d ObjectRef|nil Attached child entity for legacy B3D visual proxy
 ---@field item string Current cached item key
 ---@field visible boolean User-controlled visibility flag
+---@field first_person? boolean Per-player 1st person visibility preference
 ---@field attached_pos_glb? Vector3 Currently attached relative position on GLB proxy
 ---@field attached_rot_glb? Vector3 Currently attached relative rotation on GLB proxy
+---@field attached_forced_glb? boolean Currently attached forced_visible flag on GLB proxy
 ---@field attached_pos_b3d? Vector3 Currently attached relative position on B3D proxy
 ---@field attached_rot_b3d? Vector3 Currently attached relative rotation on B3D proxy
+---@field attached_forced_b3d? boolean Currently attached forced_visible flag on B3D proxy
 ---@field attached_pos? Vector3 Currently attached relative position (fallback)
 ---@field attached_rot? Vector3 Currently attached relative rotation (fallback)
+---@field attached_forced? boolean Currently attached forced_visible flag (fallback)
 ---@field last_wield_name? string Last checked wielded item name
 
 ---@class WieldOffsetsRegistry
@@ -38,10 +42,15 @@
 x_player_api = rawget(_G, "x_player_api") or rawget(_G, "player_api") or {}
 
 local enable_wield_item = core.settings:get_bool("x_player_api.enable_wield_item", true)
+local enable_left_wield_first_person = core.settings:get_bool("x_player_api.enable_left_wield_first_person", true)
 
 ---Whether 3D wielded item rendering attached to the player hand is enabled
 ---@type boolean
 x_player_api.enable_wield_item = enable_wield_item
+
+---Whether 3D wielded item in the left hand is visible in 1st person view by default
+---@type boolean
+x_player_api.enable_left_wield_first_person = enable_left_wield_first_person
 
 ---Set whether 3D wielded item rendering is enabled
 ---@param enabled boolean Whether 3D wield items should be active
@@ -65,7 +74,7 @@ end
 x_player_api.wield_entities = x_player_api.wield_entities or {}
 local wield_entities = x_player_api.wield_entities
 
--- Base configuration constants
+-- Base configuration constants (Right Hand - Arm_Right)
 local BASE_BONE = "Arm_Right"
 local BASE_POS_GLB = {x = 0, y = 5.2, z = -3.5}
 local BASE_ROT_GLB = {x = -90, y = 45, z = -90}
@@ -80,6 +89,24 @@ x_player_api.BASE_POS_B3D = BASE_POS_B3D
 x_player_api.BASE_ROT_B3D = BASE_ROT_B3D
 x_player_api.BASE_POS = BASE_POS_GLB
 x_player_api.BASE_ROT = BASE_ROT_GLB
+
+-- Base configuration constants (Left Hand - Arm_Left)
+local BASE_LEFT_BONE = "Arm_Left"
+local BASE_LEFT_POS_GLB = {x = 0, y = 5.2, z = -3.5}
+local BASE_LEFT_ROT_GLB = {x = -90, y = -45, z = 90}
+local BASE_LEFT_POS_B3D = {x = 0, y = 5.2, z = 3.5}
+local BASE_LEFT_ROT_B3D = {x = -90, y = 45, z = 90}
+
+x_player_api.BASE_LEFT_BONE = BASE_LEFT_BONE
+x_player_api.BASE_LEFT_POS_GLB = BASE_LEFT_POS_GLB
+x_player_api.BASE_LEFT_ROT_GLB = BASE_LEFT_ROT_GLB
+x_player_api.BASE_LEFT_POS_B3D = BASE_LEFT_POS_B3D
+x_player_api.BASE_LEFT_ROT_B3D = BASE_LEFT_ROT_B3D
+
+---@type table<string, LeftWieldEntityData>
+x_player_api.left_wield_entities = x_player_api.left_wield_entities or {}
+local left_wield_entities = x_player_api.left_wield_entities
+
 
 -- Offset and rotation customization registry
 ---@type WieldOffsetsRegistry
@@ -484,7 +511,415 @@ core.register_entity("x_player_api:wield_item", {
 	end,
 })
 
----Get the active wield item entity ObjectRef for a player
+---Calculates visual size, position offset, rotation, glow, and color for a left-hand wielded item.
+---Mirrors the canonical right-hand offsets onto Arm_Left coordinates.
+---@nodiscard
+---@param wield_stack string|ItemStack Held item name or ItemStack
+---@param format_override? string Target mesh format ("glb" or "b3d")
+---@return Vector3 visual_size Scaled entity visual_size
+---@return Vector3 pos Relative translation vector on Arm_Left
+---@return Vector3 rot Euler rotation in degrees on Arm_Left
+---@return number glow Glow brightness (0-14)
+---@return string? item_color Optional color tint
+function x_player_api.get_left_wield_attachment_params(wield_stack, format_override)
+	local v_size, r_pos, r_rot, glow, col = x_player_api.get_wield_attachment_params(wield_stack, format_override)
+	local current_format = format_override or x_player_api.get_model_format()
+	local base_pos = (current_format == "b3d") and BASE_LEFT_POS_B3D or BASE_LEFT_POS_GLB
+	local base_rot = (current_format == "b3d") and BASE_LEFT_ROT_B3D or BASE_LEFT_ROT_GLB
+
+	local right_base_pos = (current_format == "b3d") and BASE_POS_B3D or BASE_POS_GLB
+	local right_base_rot = (current_format == "b3d") and BASE_ROT_B3D or BASE_ROT_GLB
+
+	local delta_pos = {
+		x = r_pos.x - right_base_pos.x,
+		y = r_pos.y - right_base_pos.y,
+		z = r_pos.z - right_base_pos.z,
+	}
+	local delta_rot = {
+		x = r_rot.x - right_base_rot.x,
+		y = r_rot.y - right_base_rot.y,
+		z = r_rot.z - right_base_rot.z,
+	}
+
+	local pos = {
+		x = base_pos.x - delta_pos.x,
+		y = base_pos.y + delta_pos.y,
+		z = base_pos.z + delta_pos.z,
+	}
+	local rot = {
+		x = base_rot.x + delta_rot.x,
+		y = base_rot.y - delta_rot.y,
+		z = base_rot.z - delta_rot.z,
+	}
+
+	return v_size, pos, rot, glow, col
+end
+
+-- =============================================================================
+-- Shared Wield Helper Subsystem (DRY Low-Level Engine)
+-- =============================================================================
+
+---Extracts item string and bare item name from string, ItemStack, or table
+---@param item_or_stack string|ItemStack|table
+---@return string stack_str Full item string representation
+---@return string item_name Item name without count/wear/meta
+local function parse_item_stack(item_or_stack)
+	if type(item_or_stack) == "userdata" or type(item_or_stack) == "table" then
+		local s = (item_or_stack.to_string and item_or_stack:to_string())
+			or (item_or_stack.get_name and item_or_stack:get_name()) or ""
+		local n = (item_or_stack.get_name and item_or_stack:get_name()) or ""
+		return s, n
+	elseif type(item_or_stack) == "string" then
+		return item_or_stack, item_or_stack:match("%S+") or ""
+	end
+	return "", ""
+end
+
+---Constructs standard ObjectProperties for a wield item or custom mesh entity
+---@param stack_str string Itemstack string
+---@param is_empty boolean Whether item is empty / bare hand
+---@param is_vis boolean Visibility flag
+---@param v_size Vector3 Visual size
+---@param glow number Glow level (0-14)
+---@param col? string Color tint
+---@param options? table Optional mesh/texture overrides
+---@return table props ObjectProperties table
+local function make_wield_properties(stack_str, is_empty, is_vis, v_size, glow, col, options)
+	local props
+	if options and options.mesh then
+		props = {
+			visual = options.visual or "mesh",
+			mesh = options.mesh,
+			textures = options.textures or {stack_str},
+			visual_size = options.visual_size or {x = 1, y = 1, z = 1},
+			glow = (options and options.glow) or glow or 0,
+			pointable = false,
+			use_texture_alpha = true,
+			backface_culling = false,
+			is_visible = is_vis,
+		}
+	else
+		props = {
+			visual = "wielditem",
+			wield_item = stack_str,
+			textures = {stack_str},
+			visual_size = is_empty and {x = 0, y = 0, z = 0} or (options and options.visual_size) or v_size,
+			glow = (options and options.glow) or glow or 0,
+			pointable = false,
+			use_texture_alpha = true,
+			backface_culling = false,
+			is_visible = is_vis,
+		}
+	end
+	if col then
+		props.color = col
+	end
+	return props
+end
+
+---Safely removes active child entities and resets cached transforms on a slot
+---@param data WieldItemEntityData|LeftWieldEntityData
+local function clear_wield_slot_data(data)
+	if not data then return end
+	if data.glb and data.glb:get_luaentity() then data.glb:remove(); data.glb = nil end
+	if data.b3d and data.b3d:get_luaentity() then data.b3d:remove(); data.b3d = nil end
+	if data.obj and data.obj:get_luaentity() then data.obj:remove(); data.obj = nil end
+	data.attached_pos_glb = nil
+	data.attached_rot_glb = nil
+	data.attached_forced_glb = nil
+	data.attached_pos_b3d = nil
+	data.attached_rot_b3d = nil
+	data.attached_forced_b3d = nil
+	data.attached_pos = nil
+	data.attached_rot = nil
+	data.attached_forced = nil
+end
+
+---Applies position and rotation offsets or explicit overrides from options
+---@param pos_glb Vector3
+---@param rot_glb Vector3
+---@param pos_b3d Vector3
+---@param rot_b3d Vector3
+---@param options? table
+---@return Vector3 pos_glb, Vector3 rot_glb, Vector3 pos_b3d, Vector3 rot_b3d
+local function apply_transform_options(pos_glb, rot_glb, pos_b3d, rot_b3d, options)
+	if not options then
+		return pos_glb, rot_glb, pos_b3d, rot_b3d
+	end
+	if options.override_transform then
+		pos_glb = options.pos_glb or options.pos or pos_glb
+		rot_glb = options.rot_glb or options.rot or rot_glb
+		pos_b3d = options.pos_b3d or options.pos or pos_b3d
+		rot_b3d = options.rot_b3d or options.rot or rot_b3d
+	else
+		local pg = options.pos_glb or options.pos
+		if pg then
+			pos_glb = {
+				x = pos_glb.x + (pg.x or 0),
+				y = pos_glb.y + (pg.y or 0),
+				z = pos_glb.z + (pg.z or 0),
+			}
+		end
+		local pb = options.pos_b3d or options.pos
+		if pb then
+			pos_b3d = {
+				x = pos_b3d.x + (pb.x or 0),
+				y = pos_b3d.y + (pb.y or 0),
+				z = pos_b3d.z + (pb.z or 0),
+			}
+		end
+		local rg = options.rot_glb or options.rot
+		if rg then
+			rot_glb = {
+				x = rot_glb.x + (rg.x or 0),
+				y = rot_glb.y + (rg.y or 0),
+				z = rot_glb.z + (rg.z or 0),
+			}
+		end
+		local rb = options.rot_b3d or options.rot
+		if rb then
+			rot_b3d = {
+				x = rot_b3d.x + (rb.x or 0),
+				y = rot_b3d.y + (rb.y or 0),
+				z = rot_b3d.z + (rb.z or 0),
+			}
+		end
+	end
+	return pos_glb, rot_glb, pos_b3d, rot_b3d
+end
+
+---Attach or spawn a 3D wield item entity to an arbitrary entity bone (corpses, mobs, visual proxies)
+---@param parent ObjectRef Target parent object to attach to
+---@param item_or_stack string|ItemStack Held item name or ItemStack
+---@param format_override? string Model format ("glb" or "b3d", defaults to active format or "b3d")
+---@param bone? string Target bone name (defaults to "Arm_Right")
+---@param entity_name? string Registered entity name (defaults to "x_player_api:wield_item")
+---@param forced_visible? boolean Visibility override (true for standalone entities, false for player proxies)
+---@param options? table Optional visual/mesh/transform options
+---@return ObjectRef|nil wield_ent The spawned and attached entity or nil
+function x_player_api.attach_wield_item_to_entity(
+	parent, item_or_stack, format_override, bone, entity_name, forced_visible, options
+)
+	if not x_player_api.enable_wield_item then
+		return nil
+	end
+	if not parent or not parent:is_valid() then
+		return nil
+	end
+	local pos = parent.get_pos and parent:get_pos()
+	if not pos then
+		return nil
+	end
+
+	local target_bone = bone or BASE_BONE
+	local fmt = format_override or x_player_api.get_model_format()
+	local is_left = (target_bone == BASE_LEFT_BONE)
+
+	local v_size, att_pos, att_rot, glow, item_col
+	if is_left then
+		v_size, att_pos, att_rot, glow, item_col = x_player_api.get_left_wield_attachment_params(item_or_stack, fmt)
+	else
+		v_size, att_pos, att_rot, glow, item_col = x_player_api.get_wield_attachment_params(item_or_stack, fmt)
+	end
+
+	if options then
+		local pos_glb, rot_glb, pos_b3d, rot_b3d =
+			apply_transform_options(att_pos, att_rot, att_pos, att_rot, options)
+		if fmt == "glb" then
+			att_pos, att_rot = pos_glb, rot_glb
+		else
+			att_pos, att_rot = pos_b3d, rot_b3d
+		end
+	end
+
+	local stack_str, item_name = parse_item_stack(item_or_stack)
+	local is_empty = (item_name == "")
+		or (type(item_or_stack) == "userdata" and item_or_stack.is_empty and item_or_stack:is_empty())
+	local is_vis = not is_empty
+	local force_vis = true
+	if forced_visible ~= nil then
+		force_vis = forced_visible
+	end
+
+	local props = make_wield_properties(stack_str, is_empty, is_vis, v_size, glow, item_col, options)
+
+	local ent_type = entity_name or "x_player_api:wield_item"
+	local wield_ent = core.add_entity(pos, ent_type)
+	if not wield_ent then
+		return nil
+	end
+
+	wield_ent:set_properties(props)
+
+	if wield_ent.set_attach then
+		wield_ent:set_attach(parent, target_bone, att_pos, att_rot, force_vis)
+	end
+	return wield_ent
+end
+
+---Synchronizes format-specific proxies or direct fallback entities for a player hand slot
+---@param player ObjectRef Target player
+---@param data table Slot data table (wield_entities or left_wield_entities entry)
+---@param target_bone string Bone to attach to (e.g. "Arm_Right" or "Arm_Left")
+---@param pos_glb Vector3
+---@param rot_glb Vector3
+---@param props_glb table
+---@param pos_b3d Vector3
+---@param rot_b3d Vector3
+---@param props_b3d table
+---@param forced_vis boolean
+---@return ObjectRef|nil entity Active attached entity
+local function sync_player_wield_slot(
+	player, data, target_bone, pos_glb, rot_glb, props_glb, pos_b3d, rot_b3d, props_b3d, forced_vis
+)
+	local pos = player:get_pos()
+	if not pos then
+		return nil
+	end
+
+	local proxies = x_player_api.get_visual_proxies(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
+
+	if is_pure_b3d or not proxies or not (proxies.glb or proxies.b3d) then
+		local obj_valid = data.obj and data.obj:get_luaentity() and data.obj:get_attach() == player
+		if not obj_valid then
+			if data.obj and data.obj:get_luaentity() then data.obj:remove() end
+			local ent = core.add_entity(pos, "x_player_api:wield_item")
+			if ent then
+				ent:set_properties(props_b3d)
+				ent:set_attach(player, target_bone, pos_b3d, rot_b3d, forced_vis)
+				data.obj = ent
+				data.attached_pos = pos_b3d
+				data.attached_rot = rot_b3d
+				data.attached_forced = forced_vis
+			end
+		else
+			data.obj:set_properties(props_b3d)
+			local last_pos = data.attached_pos
+			local last_rot = data.attached_rot
+			if not last_pos or not last_rot
+					or pos_b3d.x ~= last_pos.x or pos_b3d.y ~= last_pos.y or pos_b3d.z ~= last_pos.z
+					or rot_b3d.x ~= last_rot.x or rot_b3d.y ~= last_rot.y or rot_b3d.z ~= last_rot.z
+					or data.attached_forced ~= forced_vis then
+				data.obj:set_attach(player, target_bone, pos_b3d, rot_b3d, forced_vis)
+				data.attached_pos = pos_b3d
+				data.attached_rot = rot_b3d
+				data.attached_forced = forced_vis
+			end
+		end
+		if data.glb and data.glb:get_luaentity() then data.glb:remove(); data.glb = nil end
+		if data.b3d and data.b3d:get_luaentity() then data.b3d:remove(); data.b3d = nil end
+	else
+		if proxies.glb and proxies.glb:is_valid() then
+			local glb_valid = data.glb and data.glb:get_luaentity() and data.glb:get_attach() == proxies.glb
+			if not glb_valid then
+				if data.glb and data.glb:get_luaentity() then data.glb:remove() end
+				local ent = core.add_entity(pos, "x_player_api:wield_item")
+				if ent then
+					ent:set_properties(props_glb)
+					ent:set_observers(x_player_api.get_modern_observers())
+					ent:set_attach(proxies.glb, target_bone, pos_glb, rot_glb, forced_vis)
+					data.glb = ent
+					data.attached_pos_glb = pos_glb
+					data.attached_rot_glb = rot_glb
+					data.attached_forced_glb = forced_vis
+				end
+			else
+				data.glb:set_properties(props_glb)
+				local last_pos = data.attached_pos_glb
+				local last_rot = data.attached_rot_glb
+				if not last_pos or not last_rot
+						or pos_glb.x ~= last_pos.x or pos_glb.y ~= last_pos.y or pos_glb.z ~= last_pos.z
+						or rot_glb.x ~= last_rot.x or rot_glb.y ~= last_rot.y or rot_glb.z ~= last_rot.z
+						or data.attached_forced_glb ~= forced_vis then
+					data.glb:set_attach(proxies.glb, target_bone, pos_glb, rot_glb, forced_vis)
+					data.attached_pos_glb = pos_glb
+					data.attached_rot_glb = rot_glb
+					data.attached_forced_glb = forced_vis
+				end
+			end
+		end
+
+		if proxies.b3d and proxies.b3d:is_valid() then
+			local b3d_valid = data.b3d and data.b3d:get_luaentity() and data.b3d:get_attach() == proxies.b3d
+			if not b3d_valid then
+				if data.b3d and data.b3d:get_luaentity() then data.b3d:remove() end
+				local ent = core.add_entity(pos, "x_player_api:wield_item")
+				if ent then
+					ent:set_properties(props_b3d)
+					ent:set_observers(x_player_api.get_legacy_observers())
+					ent:set_attach(proxies.b3d, target_bone, pos_b3d, rot_b3d, forced_vis)
+					data.b3d = ent
+					data.attached_pos_b3d = pos_b3d
+					data.attached_rot_b3d = rot_b3d
+					data.attached_forced_b3d = forced_vis
+				end
+			else
+				data.b3d:set_properties(props_b3d)
+				local last_pos = data.attached_pos_b3d
+				local last_rot = data.attached_rot_b3d
+				if not last_pos or not last_rot
+						or pos_b3d.x ~= last_pos.x or pos_b3d.y ~= last_pos.y or pos_b3d.z ~= last_pos.z
+						or rot_b3d.x ~= last_rot.x or rot_b3d.y ~= last_rot.y or rot_b3d.z ~= last_rot.z
+						or data.attached_forced_b3d ~= forced_vis then
+					data.b3d:set_attach(proxies.b3d, target_bone, pos_b3d, rot_b3d, forced_vis)
+					data.attached_pos_b3d = pos_b3d
+					data.attached_rot_b3d = rot_b3d
+					data.attached_forced_b3d = forced_vis
+				end
+			end
+		end
+
+		local active_fmt = x_player_api.get_model_format()
+		data.obj = (active_fmt == "b3d") and (data.b3d or data.glb) or (data.glb or data.b3d)
+	end
+
+	return data.glb or data.b3d or data.obj
+end
+
+---Updates forced_visible attachment state on a player slot's active entities
+---@param player ObjectRef Target player
+---@param data table Slot data
+---@param bone string Bone name
+---@param forced_vis boolean Forced visibility flag
+---@param def_pos_glb Vector3
+---@param def_rot_glb Vector3
+---@param def_pos_b3d Vector3
+---@param def_rot_b3d Vector3
+local function update_slot_attachment_visibility(
+	player, data, bone, forced_vis, def_pos_glb, def_rot_glb, def_pos_b3d, def_rot_b3d
+)
+	if not data then return end
+	local proxies = x_player_api.get_visual_proxies(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
+
+	if is_pure_b3d or not proxies or not (proxies.glb or proxies.b3d) then
+		if data.obj and data.obj:get_luaentity() then
+			local pos = data.attached_pos or def_pos_b3d
+			local rot = data.attached_rot or def_rot_b3d
+			data.obj:set_attach(player, bone, pos, rot, forced_vis)
+			data.attached_forced = forced_vis
+		end
+	else
+		if data.glb and data.glb:get_luaentity() and proxies.glb then
+			local pos = data.attached_pos_glb or def_pos_glb
+			local rot = data.attached_rot_glb or def_rot_glb
+			data.glb:set_attach(proxies.glb, bone, pos, rot, forced_vis)
+			data.attached_forced_glb = forced_vis
+		end
+		if data.b3d and data.b3d:get_luaentity() and proxies.b3d then
+			local pos = data.attached_pos_b3d or def_pos_b3d
+			local rot = data.attached_rot_b3d or def_rot_b3d
+			data.b3d:set_attach(proxies.b3d, bone, pos, rot, forced_vis)
+			data.attached_forced_b3d = forced_vis
+		end
+	end
+end
+
+-- =============================================================================
+-- Right Hand Subsystem (Getters & Visibility)
+-- =============================================================================
+
 ---Get the active wield item entity ObjectRef for a player
 ---@nodiscard
 ---@param player ObjectRef Target player
@@ -562,83 +997,209 @@ function x_player_api.get_wield_item_visibility(player)
 	return true
 end
 
----Attach or spawn a 3D wield item entity to an arbitrary entity bone (corpses, mobs, visual proxies)
----@param parent ObjectRef Target parent object to attach to
+-- =============================================================================
+-- Left Hand Subsystem (Arm_Left Attachments)
+-- =============================================================================
+
+---Set whether 3D left-hand wielded items should be visible in 1st person view globally
+---@param enabled boolean Whether 1st person left-hand wield items should be visible
+function x_player_api.set_global_left_wield_first_person(enabled)
+	x_player_api.enable_left_wield_first_person = (enabled == true)
+	local players = core.get_connected_players()
+	for i = 1, #players do
+		x_player_api.update_left_wield_attachment_visibility(players[i])
+	end
+end
+
+---Get whether 3D left-hand wield item is visible in 1st person view for a player
+---@nodiscard
+---@param player ObjectRef Target player
+---@return boolean visible
+function x_player_api.get_left_wield_first_person(player)
+	if not player or not player:is_player() then
+		return x_player_api.enable_left_wield_first_person == true
+	end
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	if data and data.first_person ~= nil then
+		return data.first_person == true
+	end
+	return x_player_api.enable_left_wield_first_person == true
+end
+
+---Set whether 3D left-hand wield item should be visible in 1st person view for a specific player
+---@param player ObjectRef Target player
+---@param visible boolean|nil Visibility in first person (nil resets to global default)
+function x_player_api.set_left_wield_first_person(player, visible)
+	if not player or not player:is_player() then
+		return
+	end
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	if not data then
+		return
+	end
+	data.first_person = visible
+	x_player_api.update_left_wield_attachment_visibility(player)
+end
+
+---Updates forced_visible attachment state on left-hand wield entities
+---@param player ObjectRef Target player
+function x_player_api.update_left_wield_attachment_visibility(player)
+	if not player or not player:is_player() then
+		return
+	end
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	if not data then
+		return
+	end
+	local forced_vis = x_player_api.get_left_wield_first_person(player)
+	local target_bone = (data.options and data.options.bone) or BASE_LEFT_BONE
+	update_slot_attachment_visibility(
+		player, data, target_bone, forced_vis,
+		BASE_LEFT_POS_GLB, BASE_LEFT_ROT_GLB, BASE_LEFT_POS_B3D, BASE_LEFT_ROT_B3D
+	)
+end
+
+---Attach or configure a 3D wield item on the player's left hand (Arm_Left) following SOLID principles.
+---Optionally visible in 1st person view via options.first_person.
+---@param player ObjectRef Target player
 ---@param item_or_stack string|ItemStack Held item name or ItemStack
----@param format_override? string Model format ("glb" or "b3d", defaults to active format or "b3d")
----@param bone? string Target bone name (defaults to "Arm_Right")
----@param entity_name? string Registered entity name (defaults to "x_player_api:wield_item")
----@param forced_visible? boolean Visibility override (true for standalone entities, false for player proxies)
----@return ObjectRef|nil wield_ent The spawned and attached entity or nil
-function x_player_api.attach_wield_item_to_entity(
-	parent, item_or_stack, format_override, bone, entity_name, forced_visible
-)
+---@param options? table Optional params: first_person, pos, rot, scale, glow, bone
+---@return ObjectRef|nil entity Attached entity reference or nil
+function x_player_api.attach_left_wield_item(player, item_or_stack, options)
 	if not x_player_api.enable_wield_item then
 		return nil
 	end
-	if not parent or not parent:is_valid() then
-		return nil
-	end
-	local pos = parent.get_pos and parent:get_pos()
-	if not pos then
+	if not player or not player:is_player() then
 		return nil
 	end
 
-	local ent_type = entity_name or "x_player_api:wield_item"
-	local wield_ent = core.add_entity(pos, ent_type)
-	if not wield_ent then
-		return nil
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	if not data then
+		data = {
+			obj = nil,
+			glb = nil,
+			b3d = nil,
+			item = "",
+			visible = true,
+			first_person = nil,
+			options = {},
+		}
+		left_wield_entities[name] = data
 	end
 
-	local target_bone = bone or BASE_BONE
-	local fmt = format_override or x_player_api.get_model_format()
-	local v_size, att_pos, att_rot, glow, item_col = x_player_api.get_wield_attachment_params(item_or_stack, fmt)
-
-	local stack_str = ""
-	local item_name = ""
-	if type(item_or_stack) == "userdata" or type(item_or_stack) == "table" then
-		stack_str = (item_or_stack.to_string and item_or_stack:to_string())
-			or (item_or_stack.get_name and item_or_stack:get_name()) or ""
-		item_name = (item_or_stack.get_name and item_or_stack:get_name()) or ""
-	elseif type(item_or_stack) == "string" then
-		stack_str = item_or_stack
-		item_name = item_or_stack:match("%S+") or ""
+	if type(options) == "table" and options.first_person ~= nil then
+		data.first_person = (options.first_person == true)
 	end
+	data.options = options or {}
+	local forced_vis = x_player_api.get_left_wield_first_person(player)
+
+	local stack_str, item_name = parse_item_stack(item_or_stack)
+	data.item = item_name
+
+	local target_bone = (options and options.bone) or BASE_LEFT_BONE
+	local v_size_glb, pos_glb, rot_glb, glow_glb, col_glb =
+		x_player_api.get_left_wield_attachment_params(item_or_stack, "glb")
+	local v_size_b3d, pos_b3d, rot_b3d, glow_b3d, col_b3d =
+		x_player_api.get_left_wield_attachment_params(item_or_stack, "b3d")
+
+	pos_glb, rot_glb, pos_b3d, rot_b3d = apply_transform_options(
+		pos_glb, rot_glb, pos_b3d, rot_b3d, options
+	)
 
 	local is_empty = (item_name == "")
-		or (type(item_or_stack) == "userdata" and item_or_stack.is_empty and item_or_stack:is_empty())
-	local is_vis = not is_empty
-	local force_vis = true
-	if forced_visible ~= nil then
-		force_vis = forced_visible
-	end
+	local is_vis = not is_empty and (data.visible ~= false)
+	local props_glb = make_wield_properties(stack_str, is_empty, is_vis, v_size_glb, glow_glb, col_glb, options)
+	local props_b3d = make_wield_properties(stack_str, is_empty, is_vis, v_size_b3d, glow_b3d, col_b3d, options)
 
-	local props = {
-		visual = "wielditem",
-		wield_item = stack_str,
-		textures = { stack_str },
-		visual_size = is_empty and {x = 0, y = 0, z = 0} or v_size,
-		glow = glow or 0,
-		pointable = false,
-		use_texture_alpha = true,
-		backface_culling = false,
-		is_visible = is_vis,
-	}
-	if item_col then
-		props.color = item_col
-	end
-	wield_ent:set_properties(props)
-
-	if wield_ent.set_attach then
-		wield_ent:set_attach(parent, target_bone, att_pos, att_rot, force_vis)
-	end
-	return wield_ent
+	return sync_player_wield_slot(
+		player, data, target_bone,
+		pos_glb, rot_glb, props_glb,
+		pos_b3d, rot_b3d, props_b3d,
+		forced_vis
+	)
 end
+
+---Updates or modifies the left-hand wield item on a player.
+---@param player ObjectRef Target player
+---@param item_or_stack? string|ItemStack Held item name or ItemStack
+---@param options? table Optional params: first_person, pos, rot, scale, glow
+---@return ObjectRef|nil entity Attached entity reference or nil
+function x_player_api.update_left_wield_item(player, item_or_stack, options)
+	if not player or not player:is_player() then
+		return nil
+	end
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	local item = item_or_stack or (data and data.item) or ""
+	local opts = options or (data and data.options) or {}
+	return x_player_api.attach_left_wield_item(player, item, opts)
+end
+
+---Removes the left hand wield item entity from a player.
+---@param player ObjectRef|string Target player or player name
+function x_player_api.remove_left_wield_item(player)
+	if not player then
+		return
+	end
+	local name
+	if type(player) == "string" then
+		name = player
+	elseif player.is_player and player:is_player() then
+		name = player:get_player_name()
+	else
+		return
+	end
+	local data = left_wield_entities[name]
+	if data then
+		clear_wield_slot_data(data)
+		left_wield_entities[name] = nil
+	end
+end
+
+---Returns the currently attached left-hand item name for a player.
+---@param player ObjectRef|string Target player or player name
+---@return string item_name
+function x_player_api.get_left_wield_item(player)
+	if not player then
+		return ""
+	end
+	local name
+	if type(player) == "string" then
+		name = player
+	elseif player.is_player and player:is_player() then
+		name = player:get_player_name()
+	else
+		return ""
+	end
+	local data = left_wield_entities[name]
+	return (data and data.item) or ""
+end
+
+---Returns the active left-hand wield entity reference for a player.
+---@param player ObjectRef Target player
+---@return ObjectRef|nil entity
+function x_player_api.get_left_wield_entity(player)
+	if not player or not player:is_player() then
+		return nil
+	end
+	local name = player:get_player_name()
+	local data = left_wield_entities[name]
+	return data and (data.glb or data.b3d or data.obj)
+end
+
+-- =============================================================================
+-- Right Hand Subsystem (Arm_Right Attachments & Update Loop)
+-- =============================================================================
 
 ---Attach or re-attach the ephemeral wield item entity to player's Arm_Right bone
 ---@param player ObjectRef Target player
+---@param force? boolean Force recreation of existing entity
 ---@return ObjectRef|nil entity Attached entity reference or nil
-function x_player_api.attach_wield_item(player)
+function x_player_api.attach_wield_item(player, force)
 	if not x_player_api.enable_wield_item then
 		return nil
 	end
@@ -657,148 +1218,30 @@ function x_player_api.attach_wield_item(player)
 		}
 		wield_entities[name] = data
 	end
-
-	local pos = player:get_pos()
-	if not pos then
-		return nil
+	if force then
+		clear_wield_slot_data(data)
 	end
-
-	local proxies = x_player_api.get_visual_proxies(player)
-	local is_pure_b3d = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
-
-	if is_pure_b3d then
-		-- In pure native B3D mode: attach wield entity directly to player entity
-		local obj_valid = data.obj and data.obj:get_luaentity() and data.obj:get_attach() == player
-		if not obj_valid then
-			if data.obj and data.obj:get_luaentity() then
-				data.obj:remove()
-			end
-			local entity = x_player_api.attach_wield_item_to_entity(
-				player, "", "b3d", BASE_BONE, "x_player_api:wield_item", false
-			)
-			if entity then
-				local _, init_pos, init_rot = x_player_api.get_wield_attachment_params("", "b3d")
-				data.obj = entity
-				data.attached_pos = init_pos
-				data.attached_rot = init_rot
-			end
-		end
-		if data.glb and data.glb:get_luaentity() then data.glb:remove(); data.glb = nil end
-		if data.b3d and data.b3d:get_luaentity() then data.b3d:remove(); data.b3d = nil end
-	elseif proxies and (proxies.glb or proxies.b3d) then
-		-- Proxy-backed mode: attach format-specific wield entities to active proxies
-		if proxies.glb and proxies.glb:is_valid() then
-			local glb_valid = data.glb and data.glb:get_luaentity() and data.glb:get_attach() == proxies.glb
-			if not glb_valid then
-				if data.glb and data.glb:get_luaentity() then
-					data.glb:remove()
-				end
-				local ent = x_player_api.attach_wield_item_to_entity(
-					proxies.glb, "", "glb", BASE_BONE, "x_player_api:wield_item", false
-				)
-				if ent then
-					local _, init_pos, init_rot = x_player_api.get_wield_attachment_params("", "glb")
-					ent:set_observers(x_player_api.get_modern_observers())
-					data.glb = ent
-					data.attached_pos_glb = init_pos
-					data.attached_rot_glb = init_rot
-				end
-			end
-		elseif data.glb and data.glb:get_luaentity() then
-			data.glb:remove()
-			data.glb = nil
-			data.attached_pos_glb = nil
-			data.attached_rot_glb = nil
-		end
-
-		if proxies.b3d and proxies.b3d:is_valid() then
-			local b3d_valid = data.b3d and data.b3d:get_luaentity() and data.b3d:get_attach() == proxies.b3d
-			if not b3d_valid then
-				if data.b3d and data.b3d:get_luaentity() then
-					data.b3d:remove()
-				end
-				local ent = x_player_api.attach_wield_item_to_entity(
-					proxies.b3d, "", "b3d", BASE_BONE, "x_player_api:wield_item", false
-				)
-				if ent then
-					local _, init_pos, init_rot = x_player_api.get_wield_attachment_params("", "b3d")
-					ent:set_observers(x_player_api.get_legacy_observers())
-					data.b3d = ent
-					data.attached_pos_b3d = init_pos
-					data.attached_rot_b3d = init_rot
-				end
-			end
-		elseif data.b3d and data.b3d:get_luaentity() then
-			data.b3d:remove()
-			data.b3d = nil
-			data.attached_pos_b3d = nil
-			data.attached_rot_b3d = nil
-		end
-
-		if data.obj and data.obj:get_luaentity() and data.obj ~= data.glb and data.obj ~= data.b3d then
-			data.obj:remove()
-			data.attached_pos = nil
-			data.attached_rot = nil
-		end
-
-		local active_fmt = x_player_api.get_model_format()
-		if active_fmt == "b3d" then
-			data.obj = data.b3d or data.glb
-		else
-			data.obj = data.glb or data.b3d
-		end
-	else
-		-- Direct player fallback mode
-		local obj_valid = data.obj and data.obj:get_luaentity() and data.obj:get_attach() == player
-		if not obj_valid then
-			if data.obj and data.obj:get_luaentity() then
-				data.obj:remove()
-			end
-			local entity = x_player_api.attach_wield_item_to_entity(
-				player, "", "b3d", BASE_BONE, "x_player_api:wield_item", false
-			)
-			if entity then
-				local _, init_pos, init_rot = x_player_api.get_wield_attachment_params("", "b3d")
-				data.obj = entity
-				data.attached_pos = init_pos
-				data.attached_rot = init_rot
-			end
-		end
-		data.glb = nil
-		data.b3d = nil
-	end
-
 	x_player_api.update_wield_item(player, true)
 	return data.glb or data.b3d or data.obj
 end
 
 ---Remove the wield item entity for a player
----@param player ObjectRef Target player
+---@param player ObjectRef|string Target player or player name
 function x_player_api.remove_wield_item(player)
-	if not player or not player:is_player() then
+	if not player then
 		return
 	end
-	local name = player:get_player_name()
+	local name
+	if type(player) == "string" then
+		name = player
+	elseif player.is_player and player:is_player() then
+		name = player:get_player_name()
+	else
+		return
+	end
 	local data = wield_entities[name]
 	if data then
-		if data.glb and data.glb:get_luaentity() then
-			data.glb:remove()
-			data.glb = nil
-		end
-		if data.b3d and data.b3d:get_luaentity() then
-			data.b3d:remove()
-			data.b3d = nil
-		end
-		if data.obj and data.obj:get_luaentity() then
-			data.obj:remove()
-			data.obj = nil
-		end
-		data.attached_pos_glb = nil
-		data.attached_rot_glb = nil
-		data.attached_pos_b3d = nil
-		data.attached_rot_b3d = nil
-		data.attached_pos = nil
-		data.attached_rot = nil
+		clear_wield_slot_data(data)
 		wield_entities[name] = nil
 	end
 end
@@ -820,36 +1263,6 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 		return
 	end
 
-	local proxies = x_player_api.get_visual_proxies(player)
-	local is_pure_b3d = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
-	local needs_reattach = false
-
-	if is_pure_b3d then
-		if not data.obj or not data.obj:get_luaentity() or data.obj:get_attach() ~= player then
-			needs_reattach = true
-		end
-	elseif proxies and (proxies.glb or proxies.b3d) then
-		if proxies.glb and proxies.glb:is_valid() then
-			if not data.glb or not data.glb:get_luaentity() or data.glb:get_attach() ~= proxies.glb then
-				needs_reattach = true
-			end
-		end
-		if proxies.b3d and proxies.b3d:is_valid() then
-			if not data.b3d or not data.b3d:get_luaentity() or data.b3d:get_attach() ~= proxies.b3d then
-				needs_reattach = true
-			end
-		end
-	else
-		if not data.obj or not data.obj:get_luaentity() or data.obj:get_attach() ~= player then
-			needs_reattach = true
-		end
-	end
-
-	if needs_reattach then
-		x_player_api.attach_wield_item(player)
-		return
-	end
-
 	-- Dead players hide wield item
 	if player:get_hp() <= 0 or data.visible == false then
 		if data.item ~= "" or force then
@@ -857,6 +1270,7 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 			local hide_props = {
 				is_visible = false,
 				wield_item = "",
+				glow = 0,
 			}
 			if data.glb and data.glb:get_luaentity() then
 				data.glb:set_properties(hide_props)
@@ -883,31 +1297,36 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 		end
 	end
 
+	local needs_reattach = false
+	local proxies = x_player_api.get_visual_proxies(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
+
+	if is_pure_b3d or not proxies or not (proxies.glb or proxies.b3d) then
+		if not data.obj or not data.obj:get_luaentity() or data.obj:get_attach() ~= player then
+			needs_reattach = true
+		end
+	else
+		if proxies.glb and proxies.glb:is_valid() then
+			if not data.glb or not data.glb:get_luaentity() or data.glb:get_attach() ~= proxies.glb then
+				needs_reattach = true
+			end
+		end
+		if proxies.b3d and proxies.b3d:is_valid() then
+			if not data.b3d or not data.b3d:get_luaentity() or data.b3d:get_attach() ~= proxies.b3d then
+				needs_reattach = true
+			end
+		end
+	end
+
 	-- If item identity has not changed and not forced, skip completely
-	if not force and item_key == data.item then
+	if not force and not needs_reattach and item_key == data.item then
 		return
 	end
 
 	data.item = item_key
 
-	if item_name == "" or (wield_stack and wield_stack.is_empty and wield_stack:is_empty()) then
-		local empty_props = {
-			is_visible = false,
-			wield_item = "",
-			glow = 0,
-		}
-		if data.glb and data.glb:get_luaentity() then
-			data.glb:set_properties(empty_props)
-		end
-		if data.b3d and data.b3d:get_luaentity() then
-			data.b3d:set_properties(empty_props)
-		end
-		if data.obj and data.obj:get_luaentity() and data.obj ~= data.glb and data.obj ~= data.b3d then
-			data.obj:set_properties(empty_props)
-		end
-		return
-	end
-
+	local is_empty = (item_name == "")
+		or (wield_stack and wield_stack.is_empty and wield_stack:is_empty())
 	local stack_str = (wield_stack and wield_stack.to_string and wield_stack:to_string()) or item_name
 	local pdata = x_player_api.get_animation(player)
 	local model = pdata and x_player_api.get_model(pdata.model)
@@ -915,100 +1334,21 @@ function x_player_api.update_wield_item(player, force, wield_stack)
 	local has_glb = (active_format ~= "b3d") and model and (model.mesh_glb or (model.mesh and model.mesh:match("%.glb$")))
 	local has_b3d = not model or (model.mesh and not model.mesh:match("%.glb$")) or model.mesh_b3d
 
-	-- Update GLB proxy wield entity
-	if not is_pure_b3d and proxies and proxies.glb and proxies.glb:is_valid()
-			and data.glb and data.glb:get_luaentity() then
-		if has_glb then
-			local v_size_glb, pos_glb, rot_glb, glow_glb, col_glb = x_player_api.get_wield_attachment_params(wield_stack, "glb")
-			local props_glb = {
-				visual = "wielditem",
-				wield_item = stack_str,
-				visual_size = v_size_glb,
-				glow = glow_glb,
-				is_visible = true,
-				pointable = false,
-			}
-			if col_glb then props_glb.color = col_glb end
-			data.glb:set_properties(props_glb)
+	local v_size_glb, pos_glb, rot_glb, glow_glb, col_glb = x_player_api.get_wield_attachment_params(wield_stack, "glb")
+	local v_size_b3d, pos_b3d, rot_b3d, glow_b3d, col_b3d = x_player_api.get_wield_attachment_params(wield_stack, "b3d")
 
-			local last_pos = data.attached_pos_glb
-			local last_rot = data.attached_rot_glb
-			if not last_pos or not last_rot
-					or pos_glb.x ~= last_pos.x or pos_glb.y ~= last_pos.y or pos_glb.z ~= last_pos.z
-					or rot_glb.x ~= last_rot.x or rot_glb.y ~= last_rot.y or rot_glb.z ~= last_rot.z then
-				data.glb:set_attach(proxies.glb, BASE_BONE, pos_glb, rot_glb, false)
-				data.attached_pos_glb = pos_glb
-				data.attached_rot_glb = rot_glb
-			end
-		else
-			data.glb:set_properties({
-				is_visible = false,
-				visual_size = {x = 0, y = 0},
-				wield_item = "",
-				glow = 0,
-			})
-		end
-	end
+	local is_vis_glb = not is_empty and (has_glb and true or false) and (data.visible ~= false)
+	local is_vis_b3d = not is_empty and (has_b3d and true or false) and (data.visible ~= false)
 
-	-- Update B3D wield entity attached to B3D proxy
-	if not is_pure_b3d and proxies and proxies.b3d and proxies.b3d:is_valid()
-			and data.b3d and data.b3d:get_luaentity() then
-		if has_b3d then
-			local v_size_b3d, pos_b3d, rot_b3d, glow_b3d, col_b3d = x_player_api.get_wield_attachment_params(wield_stack, "b3d")
-			local props_b3d = {
-				visual = "wielditem",
-				wield_item = stack_str,
-				visual_size = v_size_b3d,
-				glow = glow_b3d,
-				is_visible = true,
-				pointable = false,
-			}
-			if col_b3d then props_b3d.color = col_b3d end
-			data.b3d:set_properties(props_b3d)
+	local props_glb = make_wield_properties(stack_str, is_empty or not has_glb, is_vis_glb, v_size_glb, glow_glb, col_glb)
+	local props_b3d = make_wield_properties(stack_str, is_empty or not has_b3d, is_vis_b3d, v_size_b3d, glow_b3d, col_b3d)
 
-			local last_pos = data.attached_pos_b3d
-			local last_rot = data.attached_rot_b3d
-			if not last_pos or not last_rot
-					or pos_b3d.x ~= last_pos.x or pos_b3d.y ~= last_pos.y or pos_b3d.z ~= last_pos.z
-					or rot_b3d.x ~= last_rot.x or rot_b3d.y ~= last_rot.y or rot_b3d.z ~= last_rot.z then
-				data.b3d:set_attach(proxies.b3d, BASE_BONE, pos_b3d, rot_b3d, false)
-				data.attached_pos_b3d = pos_b3d
-				data.attached_rot_b3d = rot_b3d
-			end
-		else
-			data.b3d:set_properties({
-				is_visible = false,
-				visual_size = {x = 0, y = 0},
-				wield_item = "",
-				glow = 0,
-			})
-		end
-	end
-
-	-- Update direct player fallback wield entity (or pure native B3D entity)
-	if (is_pure_b3d or not proxies or not (proxies.glb or proxies.b3d)) and data.obj and data.obj:get_luaentity() then
-		local v_size, pos, rot, glow, item_col = x_player_api.get_wield_attachment_params(wield_stack, "b3d")
-		local props = {
-			visual = "wielditem",
-			wield_item = stack_str,
-			visual_size = v_size,
-			glow = glow,
-			is_visible = true,
-			pointable = false,
-		}
-		if item_col then props.color = item_col end
-		data.obj:set_properties(props)
-
-		local last_pos = data.attached_pos
-		local last_rot = data.attached_rot
-		if not last_pos or not last_rot
-				or pos.x ~= last_pos.x or pos.y ~= last_pos.y or pos.z ~= last_pos.z
-				or rot.x ~= last_rot.x or rot.y ~= last_rot.y or rot.z ~= last_rot.z then
-			data.obj:set_attach(player, BASE_BONE, pos, rot, false)
-			data.attached_pos = pos
-			data.attached_rot = rot
-		end
-	end
+	sync_player_wield_slot(
+		player, data, BASE_BONE,
+		pos_glb, rot_glb, props_glb,
+		pos_b3d, rot_b3d, props_b3d,
+		false
+	)
 end
 
 x_player_api.WIELD_UPDATE_INTERVAL = WIELD_UPDATE_INTERVAL
@@ -1105,6 +1445,7 @@ end)
 
 core.register_on_leaveplayer(function(player)
 	x_player_api.remove_wield_item(player)
+	x_player_api.remove_left_wield_item(player)
 end)
 
 core.register_on_dieplayer(function(player)
@@ -1130,6 +1471,24 @@ core.register_on_dieplayer(function(player)
 			data.obj:set_properties(hide_props)
 		end
 	end
+	local left_data = left_wield_entities[name]
+	if left_data then
+		local hide_props = {
+			is_visible = false,
+			wield_item = "",
+			glow = 0,
+		}
+		if left_data.glb and left_data.glb:get_luaentity() then
+			left_data.glb:set_properties(hide_props)
+		end
+		if left_data.b3d and left_data.b3d:get_luaentity() then
+			left_data.b3d:set_properties(hide_props)
+		end
+		local obj = left_data.obj
+		if obj and obj:get_luaentity() and obj ~= left_data.glb and obj ~= left_data.b3d then
+			obj:set_properties(hide_props)
+		end
+	end
 end)
 
 core.register_on_respawnplayer(function(player)
@@ -1144,6 +1503,15 @@ core.register_on_respawnplayer(function(player)
 			local p = core.get_player_by_name(name)
 			if p then
 				x_player_api.attach_wield_item(p)
+			end
+		end)
+	end
+	local left_data = left_wield_entities[name]
+	if left_data and left_data.item ~= "" then
+		core.after(0.1, function()
+			local p = core.get_player_by_name(name)
+			if p then
+				x_player_api.update_left_wield_item(p)
 			end
 		end)
 	end

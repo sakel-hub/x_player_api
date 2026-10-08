@@ -4,6 +4,9 @@ x_player_api.enable_eating (Enable Eating Simulation) bool true
 # Enable 3D wielded item rendering attached to the player's hand
 x_player_api.enable_wield_item (Enable 3D Wield Items) bool true
 
+# Enable rendering 3D left-hand wielded item in first-person view
+x_player_api.enable_left_wield_first_person (Enable Left Hand 3D Wield Item in 1st Person View) bool true
+
 # Throttle update interval for 3D wield item polling in seconds
 x_player_api.wield_update_interval (Wield Item Update Throttle) float 0.2 0.05 1.0
 
