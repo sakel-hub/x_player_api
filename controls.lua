@@ -88,12 +88,14 @@
 
 ---@alias StateChangeCallback fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act: string?)
 ---@alias StateEvaluatorFunc fun(player: ObjectRef, ctx: StateEvaluationContext): string?
+---@alias WieldChangeCallback fun(player: ObjectRef, item: string, prev: string, stack: ItemStack, idx: int, p_idx: int)
 
 ---@class PlayerControlsSubsystem
 ---@field registered_on_press (fun(player: ObjectRef, key: string))[]
 ---@field registered_on_hold (fun(player: ObjectRef, key: string, duration: number))[]
 ---@field registered_on_release (fun(player: ObjectRef, key: string, duration: number))[]
 ---@field registered_on_state_change StateChangeCallback[]
+---@field registered_on_wield_change WieldChangeCallback[]
 ---@field locomotion_evaluators {priority: number, func: StateEvaluatorFunc}[]
 ---@field action_evaluators {priority: number, func: StateEvaluatorFunc}[]
 ---@field player_states table<string, PlayerControlState>
@@ -108,6 +110,7 @@ x_player_api.controls = {
 	registered_on_hold = {},
 	registered_on_release = {},
 	registered_on_state_change = {},
+	registered_on_wield_change = {},
 	locomotion_evaluators = {},
 	action_evaluators = {},
 	player_states = {},
@@ -371,6 +374,12 @@ function x_player_api.register_on_state_change(callback)
 	table.insert(ctrl.registered_on_state_change, callback)
 end
 
+---Register a callback invoked whenever a player switches their held wield item or hotbar slot
+---@param callback WieldChangeCallback
+function x_player_api.register_on_wield_change(callback)
+	table.insert(ctrl.registered_on_wield_change, callback)
+end
+
 ---Register a custom locomotion state evaluator
 ---@param priority number Higher numbers evaluate first
 ---@param evaluator StateEvaluatorFunc Return state name string or nil to fall through
@@ -415,6 +424,8 @@ core.register_on_joinplayer(function(player)
 		test_anim_is_action = false,
 		prev_loco_state = "stand",
 		prev_action_state = nil,
+		prev_wield_name = (player:get_wielded_item() and player:get_wielded_item():get_name()) or "",
+		prev_wield_idx = (player.get_wield_index and player:get_wield_index()) or 1,
 		semantic_state = {
 			moving = false,
 			sprinting = false,
@@ -574,6 +585,53 @@ function x_player_api.get_player_control_bits(controls)
 	return bits
 end
 
+---Evaluate whether player is capable of blocking (via held item, offhand shield, or registered predicates)
+---@nodiscard
+---@param player ObjectRef Target player
+---@param wield_name? string Held item name (optional, defaults to player's wielded item)
+---@param item_info? ItemClassification Classification of held item (optional, auto-classified if omitted)
+---@return boolean can_block
+function x_player_api.evaluate_can_block(player, wield_name, item_info)
+	if not player or not player:is_player() then
+		return false
+	end
+	if not wield_name and player.get_wielded_item then
+		local wielded = player:get_wielded_item()
+		wield_name = wielded and wielded:get_name() or ""
+	end
+	if not item_info and wield_name and wield_name ~= "" then
+		item_info = classify_item(wield_name)
+	end
+	-- Two-handed bows and weapons require both hands, suppressing shield blocking
+	if item_info and item_info.is_bow then
+		return false
+	end
+	if wield_name and wield_name ~= "" and (core.get_item_group(wield_name, "two_handed") > 0
+			or core.get_item_group(wield_name, "crossbow") > 0) then
+		return false
+	end
+	if item_info and item_info.is_shield then
+		return true
+	end
+	local left_item = x_player_api.get_left_wield_item(player)
+	if left_item ~= "" then
+		local left_info = classify_item(left_item)
+		if left_info.is_shield then
+			return true
+		end
+	end
+	local preds = x_player_api.blocking_predicates
+	if preds then
+		for i = 1, #preds do
+			if preds[i](player, wield_name, item_info) then
+				return true
+			end
+		end
+	end
+	return false
+end
+local evaluate_can_block = x_player_api.evaluate_can_block
+
 ---Update raw keys and detect presses, holds, releases, double-taps
 ---@param player ObjectRef
 ---@param _dtime number
@@ -595,11 +653,28 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 	local pos = player:get_pos()
 	pstate.pos = pos
 
-	-- Bow release/charge tracking
+	-- Wield item and hotbar slot tracking with event callback dispatch
+	local current_wield_idx = (player.get_wield_index and player:get_wield_index()) or 1
 	local wielded = player:get_wielded_item()
-	local wield_name = wielded and wielded:get_name() or ""
+	local is_empty = wielded and wielded.is_empty and wielded:is_empty()
+	local wield_name = (wielded and not is_empty and wielded.get_name and wielded:get_name()) or ""
 	pstate.wielded_item = wielded
 	pstate.wield_name = wield_name
+	pstate.wield_index = current_wield_idx
+
+	local prev_wield_name = pstate.prev_wield_name or ""
+	local prev_wield_idx = pstate.prev_wield_idx or current_wield_idx
+	if wield_name ~= prev_wield_name or current_wield_idx ~= prev_wield_idx then
+		pstate.prev_wield_name = wield_name
+		pstate.prev_wield_idx = current_wield_idx
+		local callbacks = ctrl.registered_on_wield_change
+		if callbacks then
+			for i = 1, #callbacks do
+				callbacks[i](player, wield_name, prev_wield_name, wielded, current_wield_idx, prev_wield_idx)
+			end
+		end
+	end
+
 	local item_info = classify_item(wield_name)
 	pstate.item_info = item_info
 	local is_bow_charged = item_info.is_bow_charged
@@ -612,15 +687,7 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 	-- Action tracking (attacks, mining, interactions, secondary clicks on LMB and RMB)
 	local is_lmb = (current_controls.LMB or current_controls.dig) and not (current_controls.RMB or current_controls.place)
 	local is_rmb = (current_controls.RMB or current_controls.place) and not (current_controls.LMB or current_controls.dig)
-	local can_block = item_info.is_shield
-	if not can_block and x_player_api.blocking_predicates then
-		for _, pred in ipairs(x_player_api.blocking_predicates) do
-			if pred(player, wield_name, item_info) then
-				can_block = true
-				break
-			end
-		end
-	end
+	local can_block = evaluate_can_block(player, wield_name, item_info)
 	local is_blocking = is_rmb and can_block
 	local is_aiming_bow = item_info.is_bow and (item_info.is_bow_charged or current_controls.RMB or current_controls.place)
 
@@ -757,7 +824,7 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 		local current_anim_name = current_anim and current_anim.animation
 		local loco
 		local name = player:get_player_name()
-		local custom_att = x_player_api.player_attached and x_player_api.player_attached[name]
+		local custom_att = x_player_api.player_attached[name]
 		local parent = player:get_attach()
 		local parent_ent = parent and parent:is_valid() and parent:get_luaentity()
 		if type(custom_att) == "string" and custom_att ~= "" then
@@ -773,12 +840,14 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 	end
 
 	-- Check horizontal motion (supports auto-forward F key, analog pads, gamepads)
+	local phys = player.get_physics_override and player:get_physics_override()
+	local can_move = not phys or not phys.speed or phys.speed > 0
 	local horiz_speed_sq = (vel.x * vel.x) + (vel.z * vel.z)
-	local is_moving = controls.up or controls.down or controls.left or controls.right
+	local has_input = can_move and (controls.up or controls.down or controls.left or controls.right
 		or (controls.movement_y and math_abs(controls.movement_y) > 0.05)
-		or (controls.movement_x and math_abs(controls.movement_x) > 0.05)
-		or (horiz_speed_sq > 0.08)
-	local is_forward = not controls.down and (controls.up
+		or (controls.movement_x and math_abs(controls.movement_x) > 0.05))
+	local is_moving = has_input or (horiz_speed_sq > 0.08)
+	local is_forward = can_move and not controls.down and (controls.up
 		or (controls.movement_y and controls.movement_y > 0.05)
 		or (horiz_speed_sq > 0.08 and not controls.left and not controls.right))
 
@@ -788,8 +857,8 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 		or math_abs(vel.y) > 0.15)
 
 	-- Sprint detection (auxiliary key or double-tap forward while moving)
-	local sprint_key = controls.aux1 or (pstate and pstate.double_tap_sprint)
-	local is_sprinting = is_moving and is_forward and sprint_key and not is_sneaking and not in_water
+	local sprint_key = can_move and (controls.aux1 or (pstate and pstate.double_tap_sprint))
+	local is_sprinting = can_move and is_moving and is_forward and sprint_key and not is_sneaking and not in_water
 
 	-- Sliding detection (requires forward movement on ground)
 	local is_sliding = pstate and (pstate.sliding_until > time_now) and is_moving and is_on_ground and not in_water
@@ -862,7 +931,9 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 
 	-- Determine primary locomotion animation
 	local loco
-	if in_water then
+	if not can_move and horiz_speed_sq <= 0.08 then
+		loco = (is_posture_emote and not in_air) and active_emote or "stand"
+	elseif in_water then
 		loco = is_moving and "swim" or "stand"
 	elseif on_ladder then
 		loco = "climb"
@@ -913,15 +984,7 @@ end
 ---@return boolean is_equipping Whether playing equip montage
 local function resolve_action(player, pstate, controls, item_info, wield_name,
 		hp, time_now, is_gesture_emote, active_emote)
-	local can_block = item_info.is_shield
-	if not can_block and x_player_api.blocking_predicates then
-		for _, pred in ipairs(x_player_api.blocking_predicates) do
-			if pred(player, wield_name, item_info) then
-				can_block = true
-				break
-			end
-		end
-	end
+	local can_block = evaluate_can_block(player, wield_name, item_info)
 	local is_blocking = (controls.RMB or controls.place) and can_block
 	local is_aiming_bow = item_info.is_bow and (item_info.is_bow_charged or controls.RMB or controls.place)
 	local is_shooting_bow = (pstate and pstate.bow_shoot_until and (pstate.bow_shoot_until > time_now)) or false

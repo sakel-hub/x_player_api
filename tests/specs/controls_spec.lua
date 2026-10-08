@@ -902,6 +902,19 @@ describe("Controls & Semantic State Engine", function()
 		player_api.player_attached[name] = false
 	end)
 
+	it("forces stand locomotion and suppresses movement when physics override speed is zero", function()
+		player.get_physics_override = function() return { speed = 0.0, jump = 0.0, gravity = 1.0 } end
+		player.get_player_control = function() return { up = true, aux1 = true } end
+		player.get_velocity = function() return { x = 0, y = 0, z = 0 } end
+
+		local state = player_api.get_player_state(player)
+		assert.is_false(state.moving, "Player with speed = 0 must not be classified as moving from controls")
+		assert.is_false(state.sprinting, "Player with speed = 0 must not be classified as sprinting")
+		assert.equal("stand", state.locomotion, "Player with speed = 0 must default to stand locomotion")
+
+		player.get_physics_override = nil
+	end)
+
 	it("safely ignores nil or invalid ObjectRefs on public triggers and prevents emotes when dead", function()
 		assert.is_nil(player_api.trigger_bow_shoot(nil))
 		assert.is_nil(player_api.trigger_hurt(nil))
@@ -1139,6 +1152,58 @@ describe("Controls & Semantic State Engine", function()
 		assert.is_true(state_after.blocking)
 		assert.equal("block", state_after.action)
 		x_player_api.blocking_predicates = {}
+	end)
+
+	it("enables blocking when shield is equipped in left hand even while holding a non-shield in main hand", function()
+		core.registered_items["default:sword_steel"] = {
+			description = "Steel Sword",
+			groups = {sword = 1}
+		}
+		core.registered_items["x_player_armor:shield_wood"] = {
+			description = "Wood Shield",
+			groups = {armor_shield = 1, shield = 1}
+		}
+		player.get_wielded_item = function()
+			return ItemStack("default:sword_steel")
+		end
+		player.get_player_control = function()
+			return {RMB = true}
+		end
+
+		x_player_api.attach_left_wield_item(player, "x_player_armor:shield_wood")
+
+		local state = player_api.get_player_state(player)
+		assert.is_true(state.blocking)
+		assert.equal("block", state.action)
+
+		x_player_api.remove_left_wield_item(player)
+	end)
+
+	it("evaluates can_block directly with optional parameters and two-handed suppression", function()
+		core.registered_items["default:sword_steel"] = {groups = {sword = 1}}
+		core.registered_items["default:bow_wood"] = {groups = {bow = 1}}
+		core.registered_items["default:greatsword"] = {groups = {two_handed = 1}}
+		core.registered_items["x_player_armor:shield_wood"] = {groups = {armor_shield = 1, shield = 1}}
+
+		-- 1. No shield, wielding sword
+		player.get_wielded_item = function() return ItemStack("default:sword_steel") end
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- 2. Attach shield to left hand
+		x_player_api.attach_left_wield_item(player, "x_player_armor:shield_wood")
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 3. Wielding bow suppresses blocking
+		player.get_wielded_item = function() return ItemStack("default:bow_wood") end
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- 4. Wielding two-handed weapon suppresses blocking
+		player.get_wielded_item = function() return ItemStack("default:greatsword") end
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- Clean up
+		x_player_api.remove_left_wield_item(player)
+		player.get_wielded_item = function() return ItemStack("") end
 	end)
 
 	it("animates upper body actions on B3D proxies and player entity when model_format is b3d", function()
