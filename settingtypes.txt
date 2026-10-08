@@ -24,3 +24,6 @@ x_player_api.pure_native_b3d (Pure Native B3D Mode) bool false
 
 # Enable realistic head bone rotation tracking based on player look direction
 x_player_api.enable_head_tracking (Enable Head Tracking) bool true
+
+# Enable chatcommands for gestures and postures (/wave, /point, /cheer, /bow, /sit, /lay)
+x_player_api.enable_emote_chatcommands (Enable Emote Chatcommands) bool true

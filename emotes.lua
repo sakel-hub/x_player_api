@@ -13,6 +13,7 @@ local S = core.get_translator(core.get_current_modname())
 
 -- Default emote duration (in seconds)
 local DEFAULT_EMOTE_DURATION = 2.0
+local enable_emote_chatcommands = core.settings:get_bool("x_player_api.enable_emote_chatcommands", true)
 
 ---@type table<string, EmoteDefinition>
 x_player_api.registered_emotes = x_player_api.registered_emotes or {}
@@ -23,23 +24,26 @@ local registered_emotes = x_player_api.registered_emotes
 ---@param def EmoteDefinition Emote definition
 function x_player_api.register_emote(name, def)
 	registered_emotes[name] = def
-	if def.description then
-		core.register_chatcommand(name, {
-			description = def.description,
-			func = function(player_name)
-				local player = core.get_player_by_name(player_name)
-				if not player then return false, S("Player not found") end
-				local states = x_player_api.controls.player_states
-				local pstate = states and states[player_name]
-				if def.is_posture and pstate and pstate.active_emote == name then
-					x_player_api.stop_emote(player)
-					return true, S("Standing up")
-				end
-				local duration = def.duration or (def.is_posture and -1 or DEFAULT_EMOTE_DURATION)
-				x_player_api.play_emote(player, name, duration)
-				return true, def.msg or S("Playing gesture: @1", name)
-			end,
-		})
+	if def.description and enable_emote_chatcommands then
+		local reg_cmds = core.registered_chatcommands
+		if not (reg_cmds and reg_cmds[name]) then
+			core.register_chatcommand(name, {
+				description = def.description,
+				func = function(player_name)
+					local player = core.get_player_by_name(player_name)
+					if not player then return false, S("Player not found") end
+					local states = x_player_api.controls.player_states
+					local pstate = states and states[player_name]
+					if def.is_posture and pstate and pstate.active_emote == name then
+						x_player_api.stop_emote(player)
+						return true, S("Standing up")
+					end
+					local duration = def.duration or (def.is_posture and -1 or DEFAULT_EMOTE_DURATION)
+					x_player_api.play_emote(player, name, duration)
+					return true, def.msg or S("Playing gesture: @1", name)
+				end,
+			})
+		end
 	end
 end
 
