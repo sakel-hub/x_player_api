@@ -130,6 +130,7 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `cleanup` | `function HeadTrackingSubsystem.cleanup(player_name: string)` | Purge tracking state on player disconnect  @*param* `player_name` — Player name |
 | `config` | `HeadTrackingConfig` | Global configuration settings |
 | `get_arm_rotations` | `function` |  |
+| `get_arm_rotations_b3d` | `function` |  |
 | `get_head_rotation` | `function` |  |
 | `is_enabled` | `function` |  |
 | `modifiers` | `table<string, fun(player: ObjectRef\|Vector3)?>` | Registered custom look modifiers |
@@ -218,9 +219,12 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `prev_bow_charged` | `boolean` | Charged bow state from previous step |
 | `prev_control_bits` | `integer\|nil` | Last sampled player control bitmask |
 | `prev_loco_state` | `string` | Previous locomotion state identifier |
+| `prev_wield_idx` | `integer\|nil` | Previous held hotbar slot index |
+| `prev_wield_name` | `string\|nil` | Previous held item technical name |
 | `semantic_state` | `PlayerSemanticState` | Cached semantic state table |
 | `sliding_until` | `number` | Expiration timestamp for power slide |
 | `was_on_ground` | `boolean` | Grounded flag from previous step |
+| `wield_index` | `integer\|nil` | Current hotbar slot index |
 
 ### `PlayerControlsSubsystem`
 
@@ -233,16 +237,20 @@ High-performance player animation, locomotion, eating simulation, and 3D wield i
 | `registered_on_press` | `(fun(player: ObjectRef, key: string))[]` |  |
 | `registered_on_release` | `(fun(player: ObjectRef, key: string, duration: number))[]` |  |
 | `registered_on_state_change` | `fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act?: string)[]` |  |
+| `registered_on_wield_change` | `fun(player: ObjectRef, item: string, prev: string, stack: ItemStack, idx: int, p_idx: int)[]` |  |
 
 ### `PlayerHeadState`
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `arm_current_l` | `Vector3` | Current smoothed left arm bone rotation vector {x, y, z} in radians |
+| `arm_current_l_b3d` | `Vector3` | Current smoothed left arm bone rotation vector in B3D space |
 | `arm_current_r` | `Vector3` | Current smoothed right arm bone rotation vector {x, y, z} in radians |
 | `arm_last_sent_l` | `Vector3` | Last left arm rotation successfully dispatched over network {x, y, z} |
+| `arm_last_sent_l_b3d` | `Vector3` | Last left arm rotation successfully dispatched in B3D space |
 | `arm_last_sent_r` | `Vector3` | Last right arm rotation successfully dispatched over network {x, y, z} |
 | `arm_target_l` | `Vector3` | Target left arm bone rotation vector {x, y, z} in radians |
+| `arm_target_l_b3d` | `Vector3` | Target left arm bone rotation vector in B3D space |
 | `arm_target_r` | `Vector3` | Target right arm bone rotation vector {x, y, z} in radians |
 | `current` | `Vector3` | Current smoothed head bone rotation vector {x, y, z} in radians |
 | `enabled` | `boolean` | Per-player tracking activation flag |
@@ -339,6 +347,9 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
+| `attached_forced` | `boolean?` | Currently attached forced_visible flag (fallback) |
+| `attached_forced_b3d` | `boolean?` | Currently attached forced_visible flag on B3D proxy |
+| `attached_forced_glb` | `boolean?` | Currently attached forced_visible flag on GLB proxy |
 | `attached_pos` | `Vector3?` | Currently attached relative position (fallback) |
 | `attached_pos_b3d` | `Vector3?` | Currently attached relative position on B3D proxy |
 | `attached_pos_glb` | `Vector3?` | Currently attached relative position on GLB proxy |
@@ -346,6 +357,7 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 | `attached_rot_b3d` | `Vector3?` | Currently attached relative rotation on B3D proxy |
 | `attached_rot_glb` | `Vector3?` | Currently attached relative rotation on GLB proxy |
 | `b3d` | `ObjectRef\|nil` | Attached child entity for legacy B3D visual proxy |
+| `first_person` | `boolean?` | Per-player 1st person visibility preference |
 | `glb` | `ObjectRef\|nil` | Attached child entity for modern GLB visual proxy |
 | `item` | `string` | Current cached item key |
 | `last_wield_name` | `string?` | Last checked wielded item name |
@@ -380,6 +392,7 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 | `ParticleGeneratorFunc` | `fun(player: ObjectRef, item_name?: string, duration?: number):integer?` |
 | `StateChangeCallback` | `fun(player: ObjectRef, state: PlayerSemanticState, prev_loco: string, prev_act?: string)` |
 | `StateEvaluatorFunc` | `fun(player: ObjectRef, ctx: StateEvaluationContext):string?` |
+| `WieldChangeCallback` | `fun(player: ObjectRef, item: string, prev: string, stack: ItemStack, idx: int, p_idx: int)` |
 
 ---
 
@@ -813,6 +826,24 @@ function x_player_api.ensure_player_cohort(player_name: string, force?: boolean)
 
 * `resolved` (`boolean`): True if cohort was successfully resolved from player info
 
+#### `x_player_api.get_bone_override`
+
+Get the active bone override state for a player
+
+```lua
+function x_player_api.get_bone_override(player: ObjectRef, bone: string)
+  -> override: CachedBoneState|nil
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `bone` (`string`): Target bone name
+
+**Returns:**
+
+* `override` (`CachedBoneState|nil`): Cached bone state or nil
+
 #### `x_player_api.get_legacy_observers`
 
 Get the observer cohort set of legacy clients
@@ -887,10 +918,12 @@ Set a bone position and rotation override with network throttling and dual-forma
 Applies pitch, yaw, and roll rotation to visual proxy entities.
 Automatically compensates for Blitz3D exporter bone coordinate inversions (negated rotation axes
 and reflected X/Z position) so GLB and B3D visual proxies maintain identical orientation in-game.
+Optionally accepts an explicit B3D rotation payload for bones with complex dual-rig kinematics
+(e.g. Arm_Left bow aim).
 Throttles Head and Arm bone updates below 0.08 radians (~4.5 degrees) to optimize multiplayer bandwidth.
 
 ```lua
-function x_player_api.set_bone_override(player: ObjectRef, bone: string, position: Vector3|nil, rotation: Vector3, force?: boolean, interpolation?: number, absolute?: boolean)
+function x_player_api.set_bone_override(player: ObjectRef, bone: string, position: Vector3|nil, rotation: Vector3, force?: boolean, interpolation?: number, absolute?: boolean, b3d_rotation?: Vector3)
 ```
 
 **Parameters:**
@@ -902,6 +935,7 @@ function x_player_api.set_bone_override(player: ObjectRef, bone: string, positio
 * `force` (`boolean?`): Optional flag to bypass angular delta throttling
 * `interpolation` (`number?`): Optional interpolation duration in seconds (default: 0.1)
 * `absolute` (`boolean?`): Optional flag indicating whether rotation/position is absolute (default: true)
+* `b3d_rotation` (`Vector3?`): Optional explicit B3D rotation override vector in radians
 
 ---
 
@@ -963,6 +997,25 @@ function x_player_api.get_head_tracking_arm_rotations(player: ObjectRef)
 
 * `right_arm` (`Vector3?`): Smoothed rotation vector for Arm_Right in radians
 * `left_arm` (`Vector3?`): Smoothed rotation vector for Arm_Left in radians
+
+#### `x_player_api.get_head_tracking_arm_rotations_b3d`
+
+Get the current smoothed arm rotation vectors for B3D space
+
+```lua
+function x_player_api.get_head_tracking_arm_rotations_b3d(player: ObjectRef)
+  -> right_arm: Vector3?
+  2. left_arm: Vector3?
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `right_arm` (`Vector3?`): Smoothed rotation vector for Arm_Right in B3D space
+* `left_arm` (`Vector3?`): Smoothed rotation vector for Arm_Left in B3D space
 
 #### `x_player_api.is_head_tracking_enabled`
 
@@ -1576,18 +1629,39 @@ function x_player_api.trigger_eat(player: ObjectRef, duration?: number, item_nam
 
 Native 3D wielded item rendering via ephemeral Arm_Right child LuaEntity, attachment positioning, rotation offsets, and visibility control.
 
-#### `x_player_api.attach_wield_item`
+#### `x_player_api.attach_left_wield_item`
 
-Attach or re-attach the ephemeral wield item entity to player's Arm_Right bone
+Attach or configure a 3D wield item on the player's left hand (Arm_Left) following SOLID principles.
+Optionally visible in 1st person view via options.first_person.
 
 ```lua
-function x_player_api.attach_wield_item(player: ObjectRef)
+function x_player_api.attach_left_wield_item(player: ObjectRef, item_or_stack: string|ItemStack, options?: table)
   -> entity: ObjectRef|nil
 ```
 
 **Parameters:**
 
 * `player` (`ObjectRef`): Target player
+* `item_or_stack` (`string|ItemStack`): Held item name or ItemStack
+* `options` (`table?`): Optional params: first_person, pos, rot, scale, glow, bone
+
+**Returns:**
+
+* `entity` (`ObjectRef|nil`): Attached entity reference or nil
+
+#### `x_player_api.attach_wield_item`
+
+Attach or re-attach the ephemeral wield item entity to player's Arm_Right bone
+
+```lua
+function x_player_api.attach_wield_item(player: ObjectRef, force?: boolean)
+  -> entity: ObjectRef|nil
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `force` (`boolean?`): Force recreation of existing entity
 
 **Returns:**
 
@@ -1598,7 +1672,7 @@ function x_player_api.attach_wield_item(player: ObjectRef)
 Attach or spawn a 3D wield item entity to an arbitrary entity bone (corpses, mobs, visual proxies)
 
 ```lua
-function x_player_api.attach_wield_item_to_entity(parent: ObjectRef, item_or_stack: string|ItemStack, format_override?: string, bone?: string, entity_name?: string, forced_visible?: boolean)
+function x_player_api.attach_wield_item_to_entity(parent: ObjectRef, item_or_stack: string|ItemStack, format_override?: string, bone?: string, entity_name?: string, forced_visible?: boolean, options?: table)
   -> wield_ent: ObjectRef|nil
 ```
 
@@ -1610,6 +1684,7 @@ function x_player_api.attach_wield_item_to_entity(parent: ObjectRef, item_or_sta
 * `bone` (`string?`): Target bone name (defaults to "Arm_Right")
 * `entity_name` (`string?`): Registered entity name (defaults to "x_player_api:wield_item")
 * `forced_visible` (`boolean?`): Visibility override (true for standalone entities, false for player proxies)
+* `options` (`table?`): Optional visual/mesh/transform options
 
 **Returns:**
 
@@ -1622,6 +1697,84 @@ Clear internal wield attachment parameter cache
 ```lua
 function x_player_api.clear_wield_params_cache()
 ```
+
+#### `x_player_api.get_left_wield_attachment_params`
+
+Calculates visual size, position offset, rotation, glow, and color for a left-hand wielded item.
+Mirrors the canonical right-hand offsets onto Arm_Left coordinates.
+
+```lua
+function x_player_api.get_left_wield_attachment_params(wield_stack: string|ItemStack, format_override?: string)
+  -> visual_size: Vector3
+  2. pos: Vector3
+  3. rot: Vector3
+  4. glow: number
+  5. item_color: string?
+```
+
+**Parameters:**
+
+* `wield_stack` (`string|ItemStack`): Held item name or ItemStack
+* `format_override` (`string?`): Target mesh format ("glb" or "b3d")
+
+**Returns:**
+
+* `visual_size` (`Vector3`): Scaled entity visual_size
+* `pos` (`Vector3`): Relative translation vector on Arm_Left
+* `rot` (`Vector3`): Euler rotation in degrees on Arm_Left
+* `glow` (`number`): Glow brightness (0-14)
+* `item_color` (`string?`): Optional color tint
+
+#### `x_player_api.get_left_wield_entity`
+
+Returns the active left-hand wield entity reference for a player.
+
+```lua
+function x_player_api.get_left_wield_entity(player: ObjectRef)
+  -> entity: ObjectRef|nil
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `entity` (`ObjectRef|nil`)
+
+#### `x_player_api.get_left_wield_first_person`
+
+Get whether 3D left-hand wield item is visible in 1st person view for a player
+
+```lua
+function x_player_api.get_left_wield_first_person(player: ObjectRef)
+  -> visible: boolean
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+**Returns:**
+
+* `visible` (`boolean`)
+
+#### `x_player_api.get_left_wield_item`
+
+Returns the currently attached left-hand item name for a player.
+
+```lua
+function x_player_api.get_left_wield_item(player: string|ObjectRef)
+  -> item_name: string
+```
+
+**Parameters:**
+
+* `player` (`string|ObjectRef`): Target player or player name
+
+**Returns:**
+
+* `item_name` (`string`)
 
 #### `x_player_api.get_wield_attachment_params`
 
@@ -1654,7 +1807,6 @@ function x_player_api.get_wield_attachment_params(item_or_stack: string|ItemStac
 #### `x_player_api.get_wield_entity`
 
 Get the active wield item entity ObjectRef for a player
-Get the active wield item entity ObjectRef for a player
 
 ```lua
 function x_player_api.get_wield_entity(player: ObjectRef)
@@ -1686,6 +1838,18 @@ function x_player_api.get_wield_item_visibility(player: ObjectRef)
 
 * `visible` (`boolean`): Whether wield item entity is configured to be visible
 
+#### `x_player_api.register_on_wield_change`
+
+Register a callback invoked whenever a player switches their held wield item or hotbar slot
+
+```lua
+function x_player_api.register_on_wield_change(callback: fun(player: ObjectRef, item: string, prev: string, stack: ItemStack, idx: int, p_idx: int))
+```
+
+**Parameters:**
+
+* `callback` (`fun(player: ObjectRef, item: string, prev: string, stack: ItemStack, idx: int, p_idx: int)`)
+
 #### `x_player_api.register_wield_item_offset`
 
 Register a custom wield offset, rotation, or scale adjustment
@@ -1699,17 +1863,54 @@ function x_player_api.register_wield_item_offset(identifier: string, def: WieldO
 * `identifier` (`string`): Item name ("default:sword_steel"), group ("group:sword"), or type ("type:node")
 * `def` (`WieldOffsetDefinition`): Table containing pos, rot, scale, and/or glow overrides
 
+#### `x_player_api.remove_left_wield_item`
+
+Removes the left hand wield item entity from a player.
+
+```lua
+function x_player_api.remove_left_wield_item(player: string|ObjectRef)
+```
+
+**Parameters:**
+
+* `player` (`string|ObjectRef`): Target player or player name
+
 #### `x_player_api.remove_wield_item`
 
 Remove the wield item entity for a player
 
 ```lua
-function x_player_api.remove_wield_item(player: ObjectRef)
+function x_player_api.remove_wield_item(player: string|ObjectRef)
+```
+
+**Parameters:**
+
+* `player` (`string|ObjectRef`): Target player or player name
+
+#### `x_player_api.set_global_left_wield_first_person`
+
+Set whether 3D left-hand wielded items should be visible in 1st person view globally
+
+```lua
+function x_player_api.set_global_left_wield_first_person(enabled: boolean)
+```
+
+**Parameters:**
+
+* `enabled` (`boolean`): Whether 1st person left-hand wield items should be visible
+
+#### `x_player_api.set_left_wield_first_person`
+
+Set whether 3D left-hand wield item should be visible in 1st person view for a specific player
+
+```lua
+function x_player_api.set_left_wield_first_person(player: ObjectRef, visible: boolean|nil)
 ```
 
 **Parameters:**
 
 * `player` (`ObjectRef`): Target player
+* `visible` (`boolean|nil`): Visibility in first person (nil resets to global default)
 
 #### `x_player_api.set_wield_item_enabled`
 
@@ -1748,6 +1949,37 @@ function x_player_api.step_player_wield(player: ObjectRef, is_throttled_tick: bo
 
 * `player` (`ObjectRef`): Target player
 * `is_throttled_tick` (`boolean`): Whether periodic throttle interval has elapsed
+
+#### `x_player_api.update_left_wield_attachment_visibility`
+
+Updates forced_visible attachment state on left-hand wield entities
+
+```lua
+function x_player_api.update_left_wield_attachment_visibility(player: ObjectRef)
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+
+#### `x_player_api.update_left_wield_item`
+
+Updates or modifies the left-hand wield item on a player.
+
+```lua
+function x_player_api.update_left_wield_item(player: ObjectRef, item_or_stack?: string|ItemStack, options?: table)
+  -> entity: ObjectRef|nil
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `item_or_stack` (`(string|ItemStack)?`): Held item name or ItemStack
+* `options` (`table?`): Optional params: first_person, pos, rot, scale, glow
+
+**Returns:**
+
+* `entity` (`ObjectRef|nil`): Attached entity reference or nil
 
 #### `x_player_api.update_wield_item`
 
@@ -1797,6 +2029,25 @@ function x_player_api.detect_environment(pos: Vector3, vel: Vector3, pstate?: Pl
 * `on_ladder` (`boolean`): Whether player is on ladder or vine
 * `is_on_ground` (`boolean`): Whether player is supported by ground
 * `in_air` (`boolean`): Whether player is airborne
+
+#### `x_player_api.evaluate_can_block`
+
+Evaluate whether player is capable of blocking (via held item, offhand shield, or registered predicates)
+
+```lua
+function x_player_api.evaluate_can_block(player: ObjectRef, wield_name: string, item_info: ItemClassification)
+  -> can_block: boolean
+```
+
+**Parameters:**
+
+* `player` (`ObjectRef`): Target player
+* `wield_name` (`string`): Held item name
+* `item_info` (`ItemClassification`): Classification of held item
+
+**Returns:**
+
+* `can_block` (`boolean`)
 
 #### `x_player_api.get_mouth_position`
 
@@ -2030,12 +2281,18 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 
 | Registry / Table | Type | Description |
 | :--- | :--- | :--- |
+| `x_player_api.BASE_LEFT_BONE` | `string` |  |
+| `x_player_api.BASE_LEFT_POS_B3D` | `table` |  |
+| `x_player_api.BASE_LEFT_POS_GLB` | `table` |  |
+| `x_player_api.BASE_LEFT_ROT_B3D` | `table` |  |
+| `x_player_api.BASE_LEFT_ROT_GLB` | `table` |  |
 | `x_player_api.BASE_POS` | `table` |  |
 | `x_player_api.BASE_POS_B3D` | `table` |  |
 | `x_player_api.BASE_POS_GLB` | `table` |  |
 | `x_player_api.BASE_ROT` | `table` |  |
 | `x_player_api.BASE_ROT_B3D` | `table` |  |
 | `x_player_api.BASE_ROT_GLB` | `table` |  |
+| `x_player_api.PROXY_LIGHTING_BOX` | `number[]` | Safe lighting collisionbox for visual proxies to sample ambient light within the player's core volume. Prevents clipping into solid nodes or subterranean floors in GenericCAO::getLightPosition. |
 | `x_player_api.WIELD_UPDATE_INTERVAL` | `number` |  |
 | `x_player_api.active_proxies` | `table` | Active visual proxy entity instances by player name |
 | `x_player_api.animation_aliases` | `table<string, string>` | Semantic animation alias dictionary |
@@ -2045,8 +2302,10 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 | `x_player_api.controls` | `PlayerControlsSubsystem` |  |
 | `x_player_api.enable_eating` | `unknown` | Whether eating animations, sounds, and particle simulations are enabled |
 | `x_player_api.enable_equip_sound` | `unknown` | Whether declarative item equip sound effects are enabled |
+| `x_player_api.enable_left_wield_first_person` | `unknown` | Whether 3D wielded item in the left hand is visible in 1st person view by default |
 | `x_player_api.enable_wield_item` | `unknown` | Whether 3D wielded item rendering attached to the player hand is enabled |
 | `x_player_api.head_tracking` | `HeadTrackingSubsystem` |  |
+| `x_player_api.left_wield_entities` | `table<string, LeftWieldEntityData>` |  |
 | `x_player_api.legacy_cohort` | `table` | Map of player names with legacy client protocol |
 | `x_player_api.model_format` | `string\|"b3d"\|"glb"` |  |
 | `x_player_api.model_redirects` | `table<string, string\|fun(player: ObjectRef\|nil, model: string):string\|nil>` | Model redirection rules |
