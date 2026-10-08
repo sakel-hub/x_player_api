@@ -75,7 +75,7 @@ function x_player_api.wrap_player_metatable(player)
 			if self and self.is_player and self:is_player() then
 				local name = self:get_player_name()
 				-- In pure native B3D mode, native player visual properties are genuine and must not be hidden
-				if x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(self) then
+				if x_player_api.is_pure_native_b3d_active(self) then
 					return orig_set_properties(self, props)
 				end
 
@@ -161,7 +161,7 @@ function x_player_api.wrap_player_metatable(player)
 		target.set_bone_override = function(self, bone, override)
 			local res = orig_set_bone_override(self, bone, override)
 			if self and self.is_player and self:is_player() then
-				if not (x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(self)) then
+				if not x_player_api.is_pure_native_b3d_active(self) then
 					local proxies = x_player_api.get_visual_proxies(self)
 					if proxies then
 						if proxies.glb and proxies.glb:is_valid() then
@@ -198,6 +198,42 @@ function x_player_api.wrap_player_metatable(player)
 			return res
 		end
 	end
+
+	-- Modern Luanti API: obj:get_bone_override(bone)
+	if target.get_bone_override then
+		local orig_get_bone_override = target.get_bone_override
+		target.get_bone_override = function(self, bone)
+			if self and self.is_player and self:is_player() then
+				if not x_player_api.is_pure_native_b3d_active(self) then
+					local override = x_player_api.get_bone_override(self, bone)
+					if override then
+						return override.override_glb
+					end
+				end
+			end
+			return orig_get_bone_override(self, bone)
+		end
+	end
+end
+
+---Clean up a proxy entity and all of its attached children safely
+---@param proxy ObjectRef Proxy entity reference
+local function cleanup_proxy_and_children(proxy)
+	if not proxy or not proxy:is_valid() then return end
+	if proxy.get_children then
+		local children = proxy:get_children()
+		if children then
+			for i = 1, #children do
+				local child = children[i]
+				if child and child:is_valid() then
+					child:set_detach()
+					child:remove()
+				end
+			end
+		end
+	end
+	proxy:set_detach()
+	proxy:remove()
 end
 
 ---Initialize dual-model visual proxy entities and configure client cohorts for a joining player
@@ -215,15 +251,9 @@ local function setup_player_proxies(player)
 			return existing
 		end
 
-		-- Existing proxies belong to an earlier session or are detached: remove them
-		if existing.glb and existing.glb:is_valid() then
-			existing.glb:set_detach()
-			existing.glb:remove()
-		end
-		if existing.b3d and existing.b3d:is_valid() then
-			existing.b3d:set_detach()
-			existing.b3d:remove()
-		end
+		-- Existing proxies belong to an earlier session or are detached: clean them up
+		cleanup_proxy_and_children(existing.glb)
+		cleanup_proxy_and_children(existing.b3d)
 		x_player_api.active_proxies[name] = nil
 	end
 
@@ -270,7 +300,7 @@ local function setup_player_proxies(player)
 	-- Force cohort re-classification immediately so observer sets are populated before proxy creation
 	x_player_api.ensure_player_cohort(name, true)
 
-	local is_pure_b3d = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
 	if is_pure_b3d then
 		local model_name = x_player_api.get_model_name(player)
 		local model = x_player_api.get_model(model_name)
@@ -418,14 +448,8 @@ local function cleanup_player_proxies(player)
 	local name = player:get_player_name()
 	local proxies = x_player_api.active_proxies[name]
 	if proxies then
-		if proxies.glb and proxies.glb:is_valid() then
-			proxies.glb:set_detach()
-			proxies.glb:remove()
-		end
-		if proxies.b3d and proxies.b3d:is_valid() then
-			proxies.b3d:set_detach()
-			proxies.b3d:remove()
-		end
+		cleanup_proxy_and_children(proxies.glb)
+		cleanup_proxy_and_children(proxies.b3d)
 		x_player_api.active_proxies[name] = nil
 	end
 end
@@ -440,13 +464,11 @@ function x_player_api.cleanup_orphaned_proxies()
 		local player = core.get_player_by_name(name)
 		if not player then
 			if proxies.glb and proxies.glb:is_valid() then
-				proxies.glb:set_detach()
-				proxies.glb:remove()
+				cleanup_proxy_and_children(proxies.glb)
 				cleaned = cleaned + 1
 			end
 			if proxies.b3d and proxies.b3d:is_valid() then
-				proxies.b3d:set_detach()
-				proxies.b3d:remove()
+				cleanup_proxy_and_children(proxies.b3d)
 				cleaned = cleaned + 1
 			end
 			x_player_api.active_proxies[name] = nil
@@ -458,14 +480,8 @@ end
 ---Clean up all active proxy entities during server shutdown
 local function on_shutdown_cleanup_proxies()
 	for _, proxies in pairs(x_player_api.active_proxies) do
-		if proxies.glb and proxies.glb:is_valid() then
-			proxies.glb:set_detach()
-			proxies.glb:remove()
-		end
-		if proxies.b3d and proxies.b3d:is_valid() then
-			proxies.b3d:set_detach()
-			proxies.b3d:remove()
-		end
+		cleanup_proxy_and_children(proxies.glb)
+		cleanup_proxy_and_children(proxies.b3d)
 	end
 	x_player_api.active_proxies = {}
 end
@@ -475,7 +491,7 @@ end
 local function on_respawn_player_proxies(player)
 	if not player or not player:is_player() then return end
 	x_player_api.wrap_player_metatable(player)
-	local is_pure_b3d = x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
 	if is_pure_b3d then
 		local model_name = x_player_api.get_model_name(player)
 		local model = x_player_api.get_model(model_name)
@@ -546,9 +562,7 @@ local function on_respawn_player_proxies(player)
 				pointable = false,
 			})
 		end
-		if x_player_api.refresh_observers then
-			x_player_api.refresh_observers(player)
-		end
+		x_player_api.refresh_observers(player)
 	end
 end
 

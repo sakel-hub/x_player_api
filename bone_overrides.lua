@@ -40,11 +40,12 @@ x_player_api.bone_caches = {}
 ---@param absolute? boolean Optional flag indicating whether rotation/position is absolute (default: true)
 ---@param b3d_rotation? Vector3 Optional explicit B3D rotation override vector in radians
 function x_player_api.set_bone_override(player, bone, position, rotation, force, interpolation, absolute, b3d_rotation)
-	if not player or not player.get_player_name then return end
+	if not player or not player.is_player or not player:is_player() then return end
 	local name = player:get_player_name()
-	local proxies = x_player_api.get_visual_proxies(player)
+	local is_pure_b3d = x_player_api.is_pure_native_b3d_active(player)
+	local proxies = not is_pure_b3d and x_player_api.get_visual_proxies(player)
 
-	if not proxies then return end
+	if not is_pure_b3d and not proxies then return end
 
 	local p_cache = x_player_api.bone_caches[name]
 	if not p_cache then
@@ -174,7 +175,7 @@ function x_player_api.set_bone_override(player, bone, position, rotation, force,
 		ov_b3d.position = nil
 	end
 
-	if x_player_api.is_pure_native_b3d_active and x_player_api.is_pure_native_b3d_active(player) then
+	if is_pure_b3d then
 		if player.set_bone_override then
 			player:set_bone_override(bone, ov_b3d)
 		end
@@ -187,6 +188,18 @@ function x_player_api.set_bone_override(player, bone, position, rotation, force,
 	if proxies.b3d and proxies.b3d:is_valid() then
 		proxies.b3d:set_bone_override(bone, ov_b3d)
 	end
+end
+
+---Get the active bone override state for a player
+---@nodiscard
+---@param player ObjectRef Target player
+---@param bone string Target bone name
+---@return CachedBoneState|nil override Cached bone state or nil
+function x_player_api.get_bone_override(player, bone)
+	if not player or not player.is_player or not player:is_player() then return nil end
+	local name = player:get_player_name()
+	local p_cache = x_player_api.bone_caches[name]
+	return p_cache and p_cache[bone]
 end
 
 -- Metatable wrapping for set_bone_override is consolidated idempotently in
