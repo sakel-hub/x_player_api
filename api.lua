@@ -28,39 +28,144 @@
 ---@field registered_models table<string, ModelDefinition> Registry of model definitions by name
 ---@field model_redirects table<string, ModelRedirectRule> Model redirection rules
 ---@field animation_aliases table<string, string> Semantic animation alias dictionary
----@field player_attached table<string, boolean> Attachment state map for connected players
+---@field player_attached table<string, boolean|string> Attachment state map for connected players
 ---@field _players table<string, PlayerAnimationData> Internal per-player animation data map
 ---@field _callbacks_registered? boolean Internal flag for registered engine callbacks
 ---@field _wrappers_applied? boolean Internal flag for API safety wrappers
 ---@field _modpath_hooked? boolean Internal flag for modpath interception
 ---@field _join_registered? boolean Internal flag for player join handler
----@field model_format string Currently active player model format ("glb" or "b3d")
+---@field model_format "glb"|"b3d" Currently active player model format ("glb" or "b3d")
+---@field pure_native_b3d boolean Whether pure native B3D mode is enabled
+---@field connected_players ObjectRef[] Locally maintained array of connected players
+---@field PROXY_LIGHTING_BOX number[] Safe lighting collisionbox for visual proxies
 ---@field active_proxies? table<string, PlayerProxies> Active visual proxy entity instances by player name
 ---@field modern_cohort? table<string, boolean> Observer set of players connected with 5.17.0+ protocol
 ---@field legacy_cohort? table<string, boolean> Observer set of players connected with legacy protocol
----@field bone_caches? table<string, table<string, BoneOverride>> Cached bone transformations for network throttling
+---@field bone_caches? table<string, table<string, CachedBoneState>> Cached bone transformations for network throttling
 ---@field controls? PlayerControlsSubsystem Locomotion controls and state evaluation subsystem
+---@field head_tracking? HeadTrackingSubsystem Head bone look tracking subsystem
 ---@field registered_consumables? table<string, ConsumableDefinition> Registry of consumable items
 ---@field registered_particle_generators? table<string, ParticleGeneratorFunc> Registry of eating particle generators
 ---@field enable_eating? boolean Whether eating simulation is active
 ---@field enable_wield_item? boolean Whether 3D wielded item rendering is active
+---@field enable_left_wield_first_person? boolean Whether 3D left-hand wielded item is visible in 1st person
 ---@field enable_equip_sound? boolean Whether declarative equip sounds are active
 ---@field equip_sounds? table<string, string|EquipSoundDefinition|boolean> Sound definition lookup cache
 ---@field registered_equip_sounds table<string, string|EquipSoundDefinition|boolean> Registry of equip sound definitions
 ---@field wield_item_offsets? WieldOffsetsRegistry Custom 3D wield item transform registry
 ---@field wield_entities? table<string, WieldItemEntityData> Active wield item entity tracking state
+---@field left_wield_entities? table<string, LeftWieldEntityData> Active left-hand wield entity tracking state
+---@field blocking_predicates? (fun(player: ObjectRef, wield_name: string, item_info: ItemClassification): boolean)[]
+---@field BASE_BONE string Right arm bone name ("Arm_Right")
+---@field BASE_POS Vector3 Default translation on right arm in GLB space
+---@field BASE_ROT Vector3 Default Euler rotation on right arm in GLB space
+---@field BASE_POS_GLB Vector3 Default translation on right arm in GLB space
+---@field BASE_ROT_GLB Vector3 Default Euler rotation on right arm in GLB space
+---@field BASE_POS_B3D Vector3 Default translation on right arm in B3D space
+---@field BASE_ROT_B3D Vector3 Default Euler rotation on right arm in B3D space
+---@field BASE_LEFT_BONE string Left arm bone name ("Arm_Left")
+---@field BASE_LEFT_POS_GLB Vector3 Default translation on left arm in GLB space
+---@field BASE_LEFT_ROT_GLB Vector3 Default Euler rotation on left arm in GLB space
+---@field BASE_LEFT_POS_B3D Vector3 Default translation on left arm in B3D space
+---@field BASE_LEFT_ROT_B3D Vector3 Default Euler rotation on left arm in B3D space
+---@field WIELD_UPDATE_INTERVAL number Throttle interval in seconds for periodic wield item updates
+---@field register_model? fun(name: string, def: ModelDefinition)
+---@field get_model? fun(name_or_player: string|ObjectRef): ModelDefinition|nil
+---@field resolve_model? fun(player: ObjectRef|nil, model_name: string): string
+---@field get_default_model? fun(): string
+---@field register_model_redirect? fun(source_model: string, target_model_or_fn: ModelRedirectRule)
+---@field register_model_animation? fun(model_name: string, anim_name: string, def: AnimationDefinition)
+---@field edit_model_animation? fun(model_name: string, anim_name: string, def: table)
+---@field remove_model_animation? fun(model_name: string, anim_name: string)
+---@field get_animation? fun(player: ObjectRef): PlayerAnimationData
+---@field set_animation? fun(player: ObjectRef, anim: string, spd?: number, loop?: any, ovr?: boolean, b3d?: any)
+---@field play_action? fun(player: ObjectRef, action?: string, force?: boolean, skip_b3d?: boolean)
+---@field set_model? fun(player: ObjectRef, model_name: string)
+---@field get_model_name? fun(player: ObjectRef): string
+---@field get_model_format? fun(): "glb"|"b3d"
+---@field set_model_format? fun(format: "glb"|"b3d"): boolean, string?
+---@field is_pure_native_b3d_active? fun(player?: ObjectRef, target_model_name?: string): boolean
+---@field set_pure_native_b3d? fun(enable: boolean)
+---@field get_textures? fun(player: ObjectRef): string[]
+---@field set_textures? fun(player: ObjectRef, textures: string[])
+---@field set_texture? fun(player: ObjectRef, index: integer, texture: string)
+---@field register_animation_alias? fun(alias: string, target: string)
+---@field get_item_texture? fun(iname: string): string|nil
+---@field set_bone_override? fun(player: ObjectRef, bone: string, pos: Vector3|nil, rot: Vector3, ...)
+---@field get_bone_override? fun(player: ObjectRef, bone: string): CachedBoneState|nil
+---@field get_visual_proxies? fun(player: ObjectRef): PlayerProxies|nil
+---@field cleanup_orphaned_proxies? fun(): integer
+---@field refresh_observers? fun(target_player?: ObjectRef)
+---@field ensure_player_cohort? fun(player_name: string, force?: boolean): boolean
+---@field is_modern_client? fun(player_name: string): boolean
+---@field get_modern_observers? fun(): table<string, boolean>
+---@field get_legacy_observers? fun(): table<string, boolean>
+---@field attach_wield_item? fun(player: ObjectRef, force?: boolean): ObjectRef|nil
+---@field remove_wield_item? fun(player: ObjectRef|string)
+---@field update_wield_item? fun(player: ObjectRef, force?: boolean, wield_stack?: ItemStack)
+---@field get_wield_entity? fun(player: ObjectRef): ObjectRef|nil
+---@field set_wield_item_visibility? fun(player: ObjectRef, visible: boolean)
+---@field get_wield_item_visibility? fun(player: ObjectRef): boolean
+---@field set_wield_item_enabled? fun(enabled: boolean)
+---@field register_wield_item_offset? fun(identifier: string, def: WieldOffsetDefinition)
+---@field get_wield_attachment_params? fun(item: string|ItemStack, fmt?: string): Vector3, Vector3, ...
+---@field attach_wield_item_to_entity? fun(parent: ObjectRef, item: string|ItemStack, ...): ObjectRef|nil
+---@field attach_left_wield_item? fun(player: ObjectRef, item: string|ItemStack, opts?: table): ObjectRef|nil
+---@field update_left_wield_item? fun(player: ObjectRef, item?: string|ItemStack, opts?: table): ObjectRef|nil
+---@field remove_left_wield_item? fun(player: ObjectRef|string)
+---@field get_left_wield_item? fun(player: ObjectRef|string): string
+---@field get_left_wield_entity? fun(player: ObjectRef): ObjectRef|nil
+---@field get_left_wield_first_person? fun(player: ObjectRef): boolean
+---@field set_left_wield_first_person? fun(player: ObjectRef, visible: boolean|nil)
+---@field set_global_left_wield_first_person? fun(enabled: boolean)
+---@field update_left_wield_attachment_visibility? fun(player: ObjectRef)
+---@field get_left_wield_attachment_params? fun(stack: string|ItemStack, fmt?: string): Vector3, Vector3, ...
+---@field clear_wield_params_cache? fun()
+---@field register_on_wield_change? fun(callback: WieldChangeCallback)
+---@field register_on_state_change? fun(callback: StateChangeCallback)
+---@field register_on_press? fun(callback: fun(player: ObjectRef, key: string))
+---@field register_on_hold? fun(callback: fun(player: ObjectRef, key: string, duration: number))
+---@field register_on_release? fun(callback: fun(player: ObjectRef, key: string, duration: number))
+---@field register_locomotion_evaluator? fun(priority: number, evaluator: StateEvaluatorFunc)
+---@field register_action_evaluator? fun(priority: number, evaluator: StateEvaluatorFunc)
+---@field register_blocking_predicate? fun(predicate: BlockingPredicate)
+---@field evaluate_can_block? fun(player: ObjectRef, wield_name?: string, item_info?: ItemClassification): boolean
+---@field register_weapon_category? fun(category: string, action: string)
+---@field register_item_action? fun(item_or_group: string, def: ItemActionDefinition)
+---@field get_item_action? fun(item_name: string): ItemActionDefinition|nil
+---@field get_player_state? fun(player: ObjectRef, time_now?: number): PlayerSemanticState
+---@field trigger_bow_shoot? fun(player: ObjectRef, duration?: number): boolean|nil
+---@field trigger_hurt? fun(player: ObjectRef, duration?: number): boolean|nil
+---@field trigger_player_action? fun(player: ObjectRef, action: string, duration?: number): boolean|nil
+---@field set_head_tracking_enabled? fun(player: ObjectRef, enabled: boolean)
+---@field is_head_tracking_enabled? fun(player: ObjectRef): boolean
+---@field reset_head_tracking? fun(player: ObjectRef)
+---@field refresh_head_tracking? fun(player: ObjectRef)
+---@field get_head_rotation? fun(player: ObjectRef): Vector3|nil
+---@field get_head_tracking_arm_rotations? fun(player: ObjectRef): Vector3|nil, Vector3|nil
+---@field get_arm_rotations? fun(player: ObjectRef): Vector3|nil, Vector3|nil
+---@field get_head_tracking_arm_rotations_b3d? fun(player: ObjectRef): Vector3|nil, Vector3|nil
+---@field register_head_tracking_modifier? fun(name: string, func: HeadTrackingModifier)
+---@field unregister_head_tracking_modifier? fun(name: string)
+---@field register_emote? fun(name: string, def: EmoteDefinition)
+---@field play_emote? fun(player: ObjectRef, emote_name: string, duration?: number): boolean
+---@field stop_emote? fun(player: ObjectRef): boolean
 ---@field register_equip_sound? fun(target: string, sound_def: string|EquipSoundDefinition|boolean)
 ---@field get_equip_sound? fun(item_name: string): EquipSoundDefinition|nil
 ---@field play_equip_sound? fun(player: ObjectRef, item_name?: string): any
 ---@field trigger_equip? fun(player: ObjectRef, item_name?: string, duration?: number): boolean
 ---@field clear_equip_sound_cache? fun(item_name?: string)
+---@field register_consumable? fun(item_or_group: string, def: ConsumableDefinition)
+---@field register_particle_generator? fun(type_name: string, generator: ParticleGeneratorFunc)
 ---@field clear_consumable_cache? fun(item_name?: string)
 ---@field is_consumable? fun(item_name?: string): boolean
 ---@field trigger_eat? fun(player: ObjectRef, duration?: number, item_name?: string)
 ---@field cancel_eat? fun(player: ObjectRef): boolean
 ---@field spawn_eat_particles? fun(p: ObjectRef, item?: string, dur?: number, ptype?: string): integer|nil
----@field get_wield_item_visibility? fun(player: ObjectRef): boolean
----@field set_wield_item_visibility? fun(player: ObjectRef, visible: boolean)
+---@field is_player_in_liquid? fun(pos: Vector3): boolean
+---@field is_player_on_ladder? fun(pos: Vector3): boolean
+---@field is_ground_near? fun(pos: Vector3, dist?: number, pstate?: table): boolean, boolean
+---@field detect_environment? fun(pos: Vector3, vel: Vector3, pstate?: table): boolean, boolean, boolean, boolean
 ---@field wiggle_b3d_data? fun(data: string): string, integer, integer
 ---@field scan_and_wiggle_b3d_model? fun(mesh_name: string, full_path?: string): string
 ---@field scan_and_wiggle_registered_b3d_models? fun()
@@ -245,6 +350,30 @@ function x_player_api.is_pure_native_b3d_active(player, target_model_name)
 	return true
 end
 
+---Synchronizes model, appearance, wield item, and head tracking across all connected players
+local function refresh_all_connected_models()
+	local def_model = x_player_api.get_default_model()
+	local connected = (core._connected_players and #core._connected_players > 0 and core._connected_players)
+		or (x_player_api.connected_players and #x_player_api.connected_players > 0 and x_player_api.connected_players)
+		or core.get_connected_players()
+	for i = 1, #connected do
+		local p = connected[i]
+		local pdata = x_player_api.get_animation(p)
+		if pdata then
+			if pdata.model == "character.glb" or pdata.model == "character.b3d" or pdata.model == "character" then
+				x_player_api.set_model(p, def_model)
+			else
+				x_player_api.set_model(p, pdata.model)
+			end
+		end
+		x_player_api.update_wield_item(p, true)
+		if x_player_api.refresh_head_tracking then
+			x_player_api.refresh_head_tracking(p)
+		end
+	end
+	x_player_api.refresh_observers()
+end
+
 ---Set active global model format preferred by the server
 ---@param format "glb"|"b3d" Preferred model format
 ---@return boolean success Whether format was accepted
@@ -255,26 +384,7 @@ function x_player_api.set_model_format(format)
 	end
 	x_player_api.model_format = format
 	x_player_api.clear_wield_params_cache()
-	local def_model = x_player_api.get_default_model()
-	local connected = (core._connected_players and #core._connected_players > 0 and core._connected_players)
-		or (x_player_api.connected_players and #x_player_api.connected_players > 0 and x_player_api.connected_players)
-		or core.get_connected_players()
-	for i = 1, #connected do
-		local p = connected[i]
-		local pdata = x_player_api.get_animation(p)
-		if pdata then
-			if pdata.model == "character.glb" or pdata.model == "character.b3d" or pdata.model == "character" then
-				x_player_api.set_model(p, def_model)
-			else
-				x_player_api.set_model(p, pdata.model)
-			end
-		end
-		x_player_api.update_wield_item(p, true)
-		if x_player_api.refresh_head_tracking then
-			x_player_api.refresh_head_tracking(p)
-		end
-	end
-	x_player_api.refresh_observers()
+	refresh_all_connected_models()
 	return true, format
 end
 
@@ -282,26 +392,7 @@ end
 ---@param enable boolean Whether to enable pure native B3D mode
 function x_player_api.set_pure_native_b3d(enable)
 	x_player_api.pure_native_b3d = not not enable
-	local def_model = x_player_api.get_default_model()
-	local connected = (core._connected_players and #core._connected_players > 0 and core._connected_players)
-		or (x_player_api.connected_players and #x_player_api.connected_players > 0 and x_player_api.connected_players)
-		or core.get_connected_players()
-	for i = 1, #connected do
-		local p = connected[i]
-		local pdata = x_player_api.get_animation(p)
-		if pdata then
-			if pdata.model == "character.glb" or pdata.model == "character.b3d" or pdata.model == "character" then
-				x_player_api.set_model(p, def_model)
-			else
-				x_player_api.set_model(p, pdata.model)
-			end
-		end
-		x_player_api.update_wield_item(p, true)
-		if x_player_api.refresh_head_tracking then
-			x_player_api.refresh_head_tracking(p)
-		end
-	end
-	x_player_api.refresh_observers()
+	refresh_all_connected_models()
 end
 
 ---Apply model redirects (deprecated no-op hook maintained for legacy backwards compatibility)
@@ -1063,14 +1154,15 @@ function x_player_api.globalstep(dtime)
 	x_player_api._proxy_gc_timer = (x_player_api._proxy_gc_timer or 0) + dtime
 	if x_player_api._proxy_gc_timer >= 3.0 then
 		x_player_api._proxy_gc_timer = 0
-		if x_player_api.cleanup_orphaned_proxies then
-			x_player_api.cleanup_orphaned_proxies()
-		end
+		x_player_api.cleanup_orphaned_proxies()
 	end
 
 	local connected = (core._connected_players and #core._connected_players > 0 and core._connected_players)
 		or (x_player_api.connected_players and #x_player_api.connected_players > 0 and x_player_api.connected_players)
 		or core.get_connected_players()
+	if #connected == 0 then
+		return
+	end
 	for i = 1, #connected do
 		local player = connected[i]
 		local name = player:get_player_name()
