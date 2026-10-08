@@ -271,6 +271,12 @@ function mock_env.setup()
 		_mock_us_time = 1000000,
 		get_us_time = function() return core._mock_us_time or 1000000 end,
 		get_node_or_nil = function() return {name = "air"} end,
+		get_node = function(pos)
+			if core.get_node_or_nil then
+				return core.get_node_or_nil(pos) or {name = "air"}
+			end
+			return {name = "air"}
+		end,
 		check_player_privs = function() return false end,
 		get_item_group = function(item, group)
 			local idef = core.registered_items[item] or core.registered_nodes[item]
@@ -395,6 +401,22 @@ function mock_env.setup()
 				end
 			end
 			return nil
+		end,
+		raycast = function(_pos1, _pos2, _objects, _liquids)
+			local list = core._mock_raycast_results or {}
+			local idx = 0
+			local ray_obj = {
+				next = function(_self)
+					idx = idx + 1
+					return list[idx]
+				end,
+			}
+			setmetatable(ray_obj, {
+				__call = function(self)
+					return self:next()
+				end,
+			})
+			return ray_obj
 		end,
 		add_entity = function(pos, entity_name)
 			local def = core.registered_entities[entity_name]
@@ -618,6 +640,8 @@ function mock_env.create_player(name)
 		set_hp = function(self, hp) self._hp = hp end,
 		get_pos = function(self) return self._pos end,
 		set_pos = function(self, pos) self._pos = {x = pos.x, y = pos.y, z = pos.z} end,
+		get_look_dir = function(self) return self._look_dir or {x = 0, y = 0, z = 1} end,
+		set_look_dir = function(self, dir) self._look_dir = {x = dir.x, y = dir.y, z = dir.z} end,
 		get_wielded_item = function()
 			local meta_table = wielded.meta or {}
 			return {

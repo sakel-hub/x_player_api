@@ -23,6 +23,9 @@
 ---@field equip_until number|nil Expiration timestamp for weapon equip montage
 ---@field prev_loco_state string Previous locomotion state identifier
 ---@field prev_action_state string|nil Previous action state identifier
+---@field prev_wield_name string|nil Previous held item technical name
+---@field prev_wield_idx integer|nil Previous held hotbar slot index
+---@field wield_index integer|nil Current hotbar slot index
 ---@field semantic_state PlayerSemanticState Cached semantic state table
 ---@field controls table<string, boolean|number>|nil Last sampled player controls table
 ---@field prev_control_bits integer|nil Last sampled player control bitmask
@@ -585,13 +588,181 @@ function x_player_api.get_player_control_bits(controls)
 	return bits
 end
 
+---Pre-allocated scratch vectors for zero-allocation raycasting (LuaJIT trace friendly)
+local ray_pos1 = {x = 0, y = 0, z = 0}
+local ray_pos2 = {x = 0, y = 0, z = 0}
+
+---Determines if a pointed ObjectRef represents a combat target (rival player, proxy model, mob, or incoming projectile)
+---rather than an inanimate non-combat object (__builtin:item, falling node, etc.).
+---@nodiscard
+---@param obj ObjectRef
+---@param player ObjectRef
+---@return boolean is_combat_target
+local function is_combat_target(obj, player)
+	if not obj then
+		return false
+	end
+	if obj.is_player and obj:is_player() then
+		return true
+	end
+	if not obj.get_luaentity then
+		return false
+	end
+	local ent = obj:get_luaentity()
+	if not ent or not ent.name then
+		return false
+	end
+	local name = ent.name
+
+	-- Exclude __builtin entities (dropped items, falling nodes, etc.)
+	if name == "__builtin:item" or name == "__builtin:falling_node"
+			or name:sub(1, 10) == "__builtin:" then
+		return false
+	end
+
+	-- Visual proxies and player attachments
+	local is_visual = ent._is_visual_proxy or (name:find("^x_player_api:visual_") ~= nil)
+		or (name:find("armor_entity") ~= nil)
+	if is_visual then
+		-- Exclude the player's OWN attached visual proxies if somehow intersected
+		if ent.player == player or (obj.get_attach and obj:get_attach() == player) then
+			return false
+		end
+		-- Rival player's visual proxy or armor entity is a valid combat target (never hide shield)
+		return true
+	end
+
+	-- Projectiles and incoming arrows are combat threats (never hide shield when an arrow flies at the player)
+	if ent._is_arrow or ent._is_projectile or name:find("arrow") or name:find("projectile") then
+		return true
+	end
+
+	-- Mobs (x_mobs, Creatura, CMI, Mobs Redo, HP/health attributes, registered mobs)
+	if ent._is_x_mob or ent._cmi_is_mob or ent._creatura_mob or ent.is_mob
+			or ent.health or ent.hp or ent.hp_max then
+		return true
+	end
+	local ent_def = core.registered_entities[name]
+	if ent_def and (ent_def._is_x_mob or ent_def._cmi_is_mob or ent_def._creatura_mob or ent_def.is_mob) then
+		return true
+	end
+	local xmc = rawget(_G, "x_mob_core")
+	if xmc and xmc.registered_mobs and xmc.registered_mobs[name] then
+		return true
+	end
+	return false
+end
+
+---Checks if the player is currently aiming at an interactable node, container, or placeable surface
+---which takes precedence over defensive shield blocking.
+---Optimized for multiplayer: short-circuits instantly if RMB is not pressed or if core.raycast is absent.
+---@nodiscard
+---@param player ObjectRef
+---@param wield_name string
+---@param pstate table?
+---@param time_now number?
+---@return boolean is_interact_or_place
+local function is_placement_or_interaction(player, wield_name, pstate, time_now)
+	if not core.raycast then
+		return false
+	end
+
+	local ctrl_keys = (pstate and pstate.controls) or (player.get_player_control and player:get_player_control())
+	if not ctrl_keys or not (ctrl_keys.RMB or ctrl_keys.place) then
+		return false
+	end
+
+	-- Per-tick cache check: ensure at most 1 raycast per player per server tick
+	if pstate and time_now and pstate._last_interact_time == time_now and pstate._last_interact_wield == wield_name then
+		return pstate._last_interact_result == true
+	end
+
+	local ppos = (pstate and pstate.pos) or (player.get_pos and player:get_pos())
+	if not ppos then
+		return false
+	end
+
+	local dir = player.get_look_dir and player:get_look_dir()
+	if not dir then
+		return false
+	end
+
+	local props = player.get_properties and player:get_properties()
+	local eye_h = (props and props.eye_height) or 1.47
+
+	local range = 4.5
+	local idef = core.registered_items[wield_name]
+	if idef and idef.range and idef.range > 0 then
+		range = idef.range
+	end
+
+	ray_pos1.x = ppos.x
+	ray_pos1.y = ppos.y + eye_h
+	ray_pos1.z = ppos.z
+
+	ray_pos2.x = ray_pos1.x + dir.x * range
+	ray_pos2.y = ray_pos1.y + dir.y * range
+	ray_pos2.z = ray_pos1.z + dir.z * range
+
+	local is_node_item = (core.registered_nodes[wield_name] ~= nil)
+		or (idef and (idef.type == "node" or idef.drawtype ~= nil))
+	local has_custom_on_place = idef and idef.on_place and idef.on_place ~= core.item_place
+
+	local is_blocked = false
+	local ray = core.raycast(ray_pos1, ray_pos2, true, false)
+	for pointed in ray do
+		if pointed.ref ~= player then
+			if pointed.type == "node" then
+				local pointed_node = core.get_node(pointed.under)
+				local nodename = pointed_node and pointed_node.name
+				if nodename and nodename ~= "air" and nodename ~= "ignore" then
+					local nodedef = core.registered_nodes[nodename]
+					local has_on_rightclick = nodedef and nodedef.on_rightclick ~= nil
+					local is_container = nodedef and nodedef.groups and ((nodedef.groups.container or 0) > 1)
+					local is_sneaking = ctrl_keys.sneak == true
+
+					if is_node_item or has_custom_on_place then
+						-- Holding a placeable block or placement tool: placing block takes precedence
+						is_blocked = true
+					elseif (has_on_rightclick or is_container) and not is_sneaking then
+						-- Pointing at an interactive node without sneaking: interaction takes precedence
+						is_blocked = true
+					end
+				end
+				break
+			elseif pointed.type == "object" then
+				if is_combat_target(pointed.ref, player) then
+					-- Combat targets (mobs, players, other player proxies, incoming arrows/projectiles)
+					-- never suppress shield blocking.
+					-- Facing an enemy, incoming projectile, or rival player is the primary scenario for defense.
+					-- The entity also obstructs line-of-sight to background blocks, so we stop ray traversal here.
+					is_blocked = false
+					break
+				end
+				-- Non-combat objects (__builtin:item, falling nodes)
+				-- are excluded from ray obstruction; traversal continues to the node or combat target behind them.
+			end
+		end
+	end
+
+	if pstate and time_now then
+		pstate._last_interact_time = time_now
+		pstate._last_interact_wield = wield_name
+		pstate._last_interact_result = is_blocked
+	end
+
+	return is_blocked
+end
+
 ---Evaluate whether player is capable of blocking (via held item, offhand shield, or registered predicates)
 ---@nodiscard
 ---@param player ObjectRef Target player
 ---@param wield_name? string Held item name (optional, defaults to player's wielded item)
 ---@param item_info? ItemClassification Classification of held item (optional, auto-classified if omitted)
+---@param pstate? table Optional internal player state for caching and fast controls
+---@param time_now? number Optional timestamp for per-tick cache deduplication
 ---@return boolean can_block
-function x_player_api.evaluate_can_block(player, wield_name, item_info)
+function x_player_api.evaluate_can_block(player, wield_name, item_info, pstate, time_now)
 	if not player or not player:is_player() then
 		return false
 	end
@@ -610,25 +781,43 @@ function x_player_api.evaluate_can_block(player, wield_name, item_info)
 			or core.get_item_group(wield_name, "crossbow") > 0) then
 		return false
 	end
+
+	local has_shield = false
 	if item_info and item_info.is_shield then
-		return true
-	end
-	local left_item = x_player_api.get_left_wield_item(player)
-	if left_item ~= "" then
-		local left_info = classify_item(left_item)
-		if left_info.is_shield then
-			return true
-		end
-	end
-	local preds = x_player_api.blocking_predicates
-	if preds then
-		for i = 1, #preds do
-			if preds[i](player, wield_name, item_info) then
-				return true
+		has_shield = true
+	else
+		local left_item = x_player_api.get_left_wield_item(player)
+		if left_item ~= "" then
+			local left_info = classify_item(left_item)
+			if left_info.is_shield then
+				has_shield = true
 			end
 		end
 	end
-	return false
+
+	if not has_shield then
+		local preds = x_player_api.blocking_predicates
+		if preds then
+			for i = 1, #preds do
+				if preds[i](player, wield_name, item_info) then
+					has_shield = true
+					break
+				end
+			end
+		end
+	end
+
+	if not has_shield then
+		return false
+	end
+
+	-- Secondary placement and node interaction take precedence over defensive block stance
+	pstate = pstate or (states and states[player:get_player_name()])
+	if is_placement_or_interaction(player, wield_name, pstate, time_now) then
+		return false
+	end
+
+	return true
 end
 local evaluate_can_block = x_player_api.evaluate_can_block
 
@@ -687,7 +876,7 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 	-- Action tracking (attacks, mining, interactions, secondary clicks on LMB and RMB)
 	local is_lmb = (current_controls.LMB or current_controls.dig) and not (current_controls.RMB or current_controls.place)
 	local is_rmb = (current_controls.RMB or current_controls.place) and not (current_controls.LMB or current_controls.dig)
-	local can_block = evaluate_can_block(player, wield_name, item_info)
+	local can_block = evaluate_can_block(player, wield_name, item_info, pstate, time_now)
 	local is_blocking = is_rmb and can_block
 	local is_aiming_bow = item_info.is_bow and (item_info.is_bow_charged or current_controls.RMB or current_controls.place)
 
@@ -984,7 +1173,7 @@ end
 ---@return boolean is_equipping Whether playing equip montage
 local function resolve_action(player, pstate, controls, item_info, wield_name,
 		hp, time_now, is_gesture_emote, active_emote)
-	local can_block = evaluate_can_block(player, wield_name, item_info)
+	local can_block = evaluate_can_block(player, wield_name, item_info, pstate, time_now)
 	local is_blocking = (controls.RMB or controls.place) and can_block
 	local is_aiming_bow = item_info.is_bow and (item_info.is_bow_charged or controls.RMB or controls.place)
 	local is_shooting_bow = (pstate and pstate.bow_shoot_until and (pstate.bow_shoot_until > time_now)) or false

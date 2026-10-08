@@ -1206,6 +1206,200 @@ describe("Controls & Semantic State Engine", function()
 		player.get_wielded_item = function() return ItemStack("") end
 	end)
 
+	it("suppresses shield blocking when placing blocks or interacting with nodes (Option A)", function()
+		core.registered_items["default:sword_steel"] = {groups = {sword = 1}}
+		core.registered_nodes["default:dirt"] = {drawtype = "normal", walkable = true}
+		core.registered_nodes["default:chest"] = {
+			drawtype = "normal",
+			on_rightclick = function() end,
+		}
+		core.registered_items["x_player_armor:shield_wood"] = {groups = {armor_shield = 1, shield = 1}}
+
+		x_player_api.attach_left_wield_item(player, "x_player_armor:shield_wood")
+		player._pos = {x = 0, y = 1, z = 0}
+		player._props = {eye_height = 1.5}
+		player._look_dir = {x = 0, y = 0, z = 1}
+
+		local raycast_count = 0
+		local orig_raycast = core.raycast
+		core.raycast = function(_pos1, _pos2, _objects, _liquids)
+			raycast_count = raycast_count + 1
+			local list = core._mock_raycast_results or {}
+			local idx = 0
+			local ray_obj = {
+				next = function(_self)
+					idx = idx + 1
+					return list[idx]
+				end,
+			}
+			setmetatable(ray_obj, {
+				__call = function(self)
+					return self:next()
+				end,
+			})
+			return ray_obj
+		end
+
+		-- 1. RMB not pressed: raycast is skipped entirely (performance optimization)
+		player.get_player_control = function() return {RMB = false} end
+		player.get_wielded_item = function() return ItemStack("default:dirt") end
+		raycast_count = 0
+		assert.is_true(x_player_api.evaluate_can_block(player))
+		assert.equal(0, raycast_count)
+
+		-- 2. Wielding placable block + RMB aiming at node: placement takes precedence -> returns false
+		core._mock_raycast_results = {
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		core.get_node_or_nil = function(_pos) return {name = "default:dirt"} end
+		player.get_player_control = function() return {RMB = true} end
+		raycast_count = 0
+		assert.is_false(x_player_api.evaluate_can_block(player))
+		assert.equal(1, raycast_count)
+
+		-- 3. Wielding placable block + RMB aiming into air: no node in reach -> raises shield (returns true)
+		core._mock_raycast_results = {}
+		raycast_count = 0
+		assert.is_true(x_player_api.evaluate_can_block(player))
+		assert.equal(1, raycast_count)
+
+		-- 4. Wielding sword + RMB aiming at normal node (dirt): sword does not place -> raises shield (returns true)
+		player.get_wielded_item = function() return ItemStack("default:sword_steel") end
+		core._mock_raycast_results = {
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 5. Wielding sword + RMB aiming at interactive node (chest): interaction takes precedence -> returns false
+		core.get_node_or_nil = function(_pos) return {name = "default:chest"} end
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- 6. Wielding sword + sneak (Shift) + RMB on chest: sneak bypasses on_rightclick -> raises shield (returns true)
+		player.get_player_control = function() return {RMB = true, sneak = true} end
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 7. Per-tick caching: subsequent evaluate_can_block calls in same tick reuse cached result
+		local pstate = {controls = {RMB = true}}
+		core._mock_raycast_results = {
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		core.get_node_or_nil = function(_pos) return {name = "default:dirt"} end
+		player.get_wielded_item = function() return ItemStack("default:dirt") end
+		player.get_player_control = function() return {RMB = true} end
+		raycast_count = 0
+		local res1 = x_player_api.evaluate_can_block(player, "default:dirt", nil, pstate, 100.5)
+		local res2 = x_player_api.evaluate_can_block(player, "default:dirt", nil, pstate, 100.5)
+		assert.is_false(res1)
+		assert.is_false(res2)
+		assert.equal(1, raycast_count) -- only 1 raycast executed for both calls
+
+		-- 8. Wielding sword + RMB aiming at mob/entity: entity does not suppress blocking (VoxeLibre/Mineclonia standard)
+		local mock_mob_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "x_mobs:frosty_queen", hp = 30, _is_x_mob = true}
+			end,
+		}
+		player.get_wielded_item = function() return ItemStack("default:sword_steel") end
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_mob_ref}
+		}
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 9. Mob in front of chest: mob occludes the chest behind it, so chest does not suppress shield
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_mob_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		core.get_node_or_nil = function(_pos) return {name = "default:chest"} end
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 10. Dropped item (__builtin:item) in front of node: dropped item is ignored, block placement takes precedence
+		local mock_item_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "__builtin:item"}
+			end,
+		}
+		player.get_wielded_item = function() return ItemStack("default:dirt") end
+		core.get_node_or_nil = function(_pos) return {name = "default:dirt"} end
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_item_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- 11. Falling node (__builtin:falling_node) in front of chest:
+		-- falling node is ignored, chest interaction takes precedence
+		local mock_falling_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "__builtin:falling_node"}
+			end,
+		}
+		player.get_wielded_item = function() return ItemStack("default:sword_steel") end
+		core.get_node_or_nil = function(_pos) return {name = "default:chest"} end
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_falling_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- 12. Dropped item (__builtin:item) in front of mob: item is ignored, mob keeps shield raised
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_item_ref},
+			{type = "object", ref = mock_mob_ref},
+		}
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 13. Incoming projectile/arrow: never suppresses shield blocking
+		local mock_arrow_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "x_bows:arrow", _is_arrow = true}
+			end,
+		}
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_arrow_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		core.get_node_or_nil = function(_pos) return {name = "default:chest"} end
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 14. Rival player's visual proxy model: treated as combat target, never suppresses shield blocking
+		local mock_rival_proxy_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "x_player_api:visual_b3d", player = {}}
+			end,
+		}
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_rival_proxy_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		assert.is_true(x_player_api.evaluate_can_block(player))
+
+		-- 15. Player's OWN visual proxy model: ignored so player's line of sight is not occluded
+		local mock_own_proxy_ref = {
+			is_player = function() return false end,
+			get_luaentity = function()
+				return {name = "x_player_api:visual_b3d", player = player}
+			end,
+		}
+		core._mock_raycast_results = {
+			{type = "object", ref = mock_own_proxy_ref},
+			{type = "node", under = {x = 0, y = 1, z = 3}, above = {x = 0, y = 2, z = 3}, ref = nil}
+		}
+		assert.is_false(x_player_api.evaluate_can_block(player))
+
+		-- Clean up
+		core.raycast = orig_raycast
+		core._mock_raycast_results = nil
+		x_player_api.remove_left_wield_item(player)
+		player.get_wielded_item = function() return ItemStack("") end
+		player.get_player_control = function() return {} end
+	end)
+
 	it("animates upper body actions on B3D proxies and player entity when model_format is b3d", function()
 		core.registered_nodes["default:dirt"] = {walkable = true}
 		core.get_node_or_nil = function(pos)
