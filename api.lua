@@ -53,6 +53,7 @@
 ---@field equip_sounds? table<string, string|EquipSoundDefinition|boolean> Sound definition lookup cache
 ---@field registered_equip_sounds table<string, string|EquipSoundDefinition|boolean> Registry of equip sound definitions
 ---@field wield_item_offsets? WieldOffsetsRegistry Custom 3D wield item transform registry
+---@field wield_texture_transforms? table<string, string> Wielded item texture transform modifier registry
 ---@field wield_entities? table<string, WieldItemEntityData> Active wield item entity tracking state
 ---@field left_wield_entities? table<string, LeftWieldEntityData> Active left-hand wield entity tracking state
 ---@field blocking_predicates? (fun(player: ObjectRef, wield_name: string, item_info: ItemClassification): boolean)[]
@@ -108,6 +109,7 @@
 ---@field get_wield_item_visibility? fun(player: ObjectRef): boolean
 ---@field set_wield_item_enabled? fun(enabled: boolean)
 ---@field register_wield_item_offset? fun(identifier: string, def: WieldOffsetDefinition)
+---@field register_wield_texture_transform? fun(identifier: string, transform: string)
 ---@field get_wield_attachment_params? fun(item: string|ItemStack, fmt?: string): Vector3, Vector3, ...
 ---@field attach_wield_item_to_entity? fun(parent: ObjectRef, item: string|ItemStack, ...): ObjectRef|nil
 ---@field attach_left_wield_item? fun(player: ObjectRef, item: string|ItemStack, opts?: table): ObjectRef|nil

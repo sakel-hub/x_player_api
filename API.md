@@ -370,7 +370,11 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 | :--- | :--- | :--- |
 | `glow` | `number?` | Explicit entity glow override (0-14) |
 | `pos` | `Vector3?` | Translation offset relative to base hand attachment |
+| `pos_glb` | `Vector3?` | Format-specific translation offset for GLB models |
+| `pos_b3d` | `Vector3?` | Format-specific translation offset for B3D models |
 | `rot` | `Vector3?` | Euler rotation in degrees (X, Y, Z) |
+| `rot_glb` | `Vector3?` | Format-specific Euler rotation for GLB models |
+| `rot_b3d` | `Vector3?` | Format-specific Euler rotation for B3D models |
 | `scale` | `(number\|Vector3)?` | Scale multipliers for visual_size |
 
 ### `WieldOffsetsRegistry`
@@ -1863,6 +1867,19 @@ function x_player_api.register_wield_item_offset(identifier: string, def: WieldO
 * `identifier` (`string`): Item name ("default:sword_steel"), group ("group:sword"), or type ("type:node")
 * `def` (`WieldOffsetDefinition`): Table containing pos, rot, scale, and/or glow overrides
 
+#### `x_player_api.register_wield_texture_transform`
+
+Register a texture transform modifier for a wielded item or group
+
+```lua
+function x_player_api.register_wield_texture_transform(identifier: string, transform: string)
+```
+
+**Parameters:**
+
+* `identifier` (`string`): Item name ("screwdriver:screwdriver") or group ("group:screwdriver")
+* `transform` (`string`): Transform modifier string without the `^[transform` prefix (e.g. "R90", "R270", "FX")
+
 #### `x_player_api.remove_left_wield_item`
 
 Removes the left hand wield item entity from a player.
@@ -2321,3 +2338,4 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 | `x_player_api.registered_weapon_categories` | `table<string, string>` |  |
 | `x_player_api.wield_entities` | `table<string, WieldItemEntityData>` |  |
 | `x_player_api.wield_item_offsets` | `WieldOffsetsRegistry` |  Offset and rotation customization registry |
+| `x_player_api.wield_texture_transforms` | `table<string, string>` | Wielded item texture transform modifier registry |

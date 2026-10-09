@@ -349,4 +349,90 @@ describe("Wield Item Offsets and Orientations", function()
 		assert.equal({x = -90, y = 45, z = -90}, rot_glb)
 		assert.equal(true, forced_glb)
 	end)
+
+	it("corrects screwdriver rotation so it points forward in hand across GLB and B3D formats", function()
+		core.registered_items["screwdriver:screwdriver"] = {
+			type = "tool",
+			inventory_image = "screwdriver.png",
+			groups = {tool = 1},
+		}
+
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+		local vs_glb, pos_glb, rot_glb = player_api.get_wield_attachment_params("screwdriver:screwdriver")
+		assert.equal({x = 0, y = 4.9, z = -3.5}, pos_glb)
+		assert.equal({x = -90, y = -45, z = -90}, rot_glb)
+		assert.near(0.275 * 1.33, vs_glb.x, 1e-4)
+
+		player_api.clear_item_cache()
+		player_api.set_model_format("b3d")
+		local vs_b3d, pos_b3d, rot_b3d = player_api.get_wield_attachment_params("screwdriver:screwdriver")
+		assert.equal({x = 0, y = 4.9, z = 3.5}, pos_b3d)
+		assert.equal({x = -90, y = 135, z = -90}, rot_b3d)
+		assert.near(0.275 * 1.33, vs_b3d.x, 1e-4)
+
+		-- Left hand wield mirroring
+		local _, left_pos_glb, left_rot_glb = player_api.get_left_wield_attachment_params("screwdriver:screwdriver", "glb")
+		assert.equal({x = 0, y = 4.9, z = -3.5}, left_pos_glb)
+		assert.equal({x = -90, y = 45, z = 90}, left_rot_glb)
+
+		-- Custom tool with group:screwdriver
+		core.registered_items["mymod:sonic_driver"] = {
+			type = "tool",
+			inventory_image = "sonic.png",
+			groups = {screwdriver = 1},
+		}
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+		local _, _, rot_sonic_glb = player_api.get_wield_attachment_params("mymod:sonic_driver")
+		assert.equal({x = -90, y = -45, z = -90}, rot_sonic_glb)
+
+		-- Screwdriver with wield_image ^[transformFX should preserve standard sword orientation
+		core.registered_items["mcl_screwdriver:screwdriver"] = {
+			type = "tool",
+			inventory_image = "screwdriver.png",
+			wield_image = "screwdriver.png^[transformFX",
+			groups = {tool = 1},
+		}
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+		local _, _, rot_mcl_glb = player_api.get_wield_attachment_params("mcl_screwdriver:screwdriver")
+		assert.equal({x = -90, y = 45, z = -90}, rot_mcl_glb)
+
+		-- Item with explicit _wield_transform property
+		core.registered_items["mymod:rotated_chisel"] = {
+			type = "tool",
+			inventory_image = "chisel.png",
+			_wield_transform = "R90",
+			groups = {tool = 1},
+		}
+		player_api.clear_item_cache()
+		local _, _, rot_chisel = player_api.get_wield_attachment_params("mymod:rotated_chisel")
+		assert.equal({x = -90, y = -45, z = -90}, rot_chisel)
+
+		-- Item with group:wield_transform = 90
+		core.registered_items["mymod:grouped_tool"] = {
+			type = "tool",
+			inventory_image = "tool.png",
+			groups = {tool = 1, wield_transform = 90},
+		}
+		player_api.clear_item_cache()
+		local _, _, rot_grouped = player_api.get_wield_attachment_params("mymod:grouped_tool")
+		assert.equal({x = -90, y = -45, z = -90}, rot_grouped)
+
+		-- Item registered via register_wield_texture_transform
+		core.registered_items["mymod:custom_spanner"] = {
+			type = "tool",
+			inventory_image = "spanner.png",
+			groups = {tool = 1},
+		}
+		player_api.register_wield_texture_transform("mymod:custom_spanner", "R90")
+		player_api.clear_item_cache()
+		local _, _, rot_spanner = player_api.get_wield_attachment_params("mymod:custom_spanner")
+		assert.equal({x = -90, y = -45, z = -90}, rot_spanner)
+
+		-- Restore format to glb
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+	end)
 end)

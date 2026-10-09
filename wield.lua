@@ -3,7 +3,11 @@
 
 ---@class WieldOffsetDefinition
 ---@field pos? Vector3 Translation offset relative to base hand attachment
+---@field pos_glb? Vector3 Format-specific translation offset for GLB models
+---@field pos_b3d? Vector3 Format-specific translation offset for B3D models
 ---@field rot? Vector3 Euler rotation in degrees (X, Y, Z)
+---@field rot_glb? Vector3 Format-specific Euler rotation for GLB models
+---@field rot_b3d? Vector3 Format-specific Euler rotation for B3D models
 ---@field scale? Vector3|number Scale multipliers for visual_size
 ---@field glow? number Explicit entity glow override (0-14)
 
@@ -173,6 +177,22 @@ x_player_api.wield_item_offsets = {
 	items = {},
 }
 
+---Wielded item texture transformation registry
+---Maps item names or group identifiers ("group:screwdriver") to texture transform modifier strings (e.g. "R90")
+---Provides an agnostic mechanism for aligning items whose 2D artwork is drawn with non-standard rotations
+x_player_api.wield_texture_transforms = {
+	["screwdriver:screwdriver"] = "R90",
+	["group:screwdriver"] = "R90",
+}
+
+---Register a texture transform modifier for a wielded item or group
+---@param identifier string Item name ("screwdriver:screwdriver") or group ("group:screwdriver")
+---@param transform string Transform modifier string without the "^[transform" prefix (e.g. "R90", "R270", "FX")
+function x_player_api.register_wield_texture_transform(identifier, transform)
+	x_player_api.wield_texture_transforms[identifier] = transform
+	x_player_api.clear_wield_params_cache()
+end
+
 -- Memoized static wield attachment parameters cache (item_name -> params)
 local WIELD_PARAMS_CACHE = {}
 
@@ -197,14 +217,17 @@ function x_player_api.register_wield_item_offset(identifier, def)
 	x_player_api.clear_wield_params_cache()
 end
 
----Parse texture modifiers for rotation and colorization
+---Parse texture modifiers for rotation, flip, and colorization
 ---@param def table|nil Item definition table
 ---@param wield_stack any ItemStack or nil
+---@param item_name? string Optional item name for texture transform lookup
 ---@return number rot_deg Rotation angle from texture modifiers (0, 90, 180, 270)
 ---@return string|nil item_color Extracted color string if specified
-local function parse_texture_modifiers(def, wield_stack)
+---@return boolean has_fx Whether horizontal flip modifier is present
+local function parse_texture_modifiers(def, wield_stack, item_name)
 	local rot_deg = 0
 	local item_color = nil
+	local has_fx = false
 
 	-- Check ItemStack metadata for color
 	if wield_stack and wield_stack.get_meta then
@@ -235,7 +258,54 @@ local function parse_texture_modifiers(def, wield_stack)
 		end
 	end
 
+	-- Resolve extra texture transforms if not explicitly defined on wield_image / inventory_image
+	local extra_transform = nil
+	if def then
+		if type(def._wield_transform) == "string" and def._wield_transform ~= "" then
+			extra_transform = def._wield_transform
+		elseif def.groups then
+			if def.groups.wield_transform then
+				local wt = def.groups.wield_transform
+				extra_transform = type(wt) == "number" and ("R" .. tostring(wt)) or tostring(wt)
+			elseif def.groups.wield_rotation then
+				local wr = def.groups.wield_rotation
+				extra_transform = type(wr) == "number" and ("R" .. tostring(wr)) or tostring(wr)
+			elseif def.groups.wieldview_transform then
+				local wvt = def.groups.wieldview_transform
+				extra_transform = type(wvt) == "number" and ("R" .. tostring(wvt)) or tostring(wvt)
+			end
+		end
+	end
+
+	if not extra_transform and item_name and item_name ~= "" then
+		extra_transform = x_player_api.wield_texture_transforms[item_name]
+	end
+
+	if not extra_transform and def and def.groups then
+		for group_name, rating in pairs(def.groups) do
+			if (rating or 0) > 0 then
+				local gt = x_player_api.wield_texture_transforms["group:" .. group_name]
+				if gt then
+					extra_transform = gt
+					break
+				end
+			end
+		end
+	end
+
+	if extra_transform and not tex_str:find("%^%[transform") then
+		if extra_transform:find("^%^%[transform") then
+			tex_str = tex_str .. extra_transform
+		else
+			tex_str = tex_str .. "^[transform" .. extra_transform
+		end
+	end
+
 	if tex_str ~= "" then
+		if tex_str:find("%^%[transform[^%^]*FX") then
+			has_fx = true
+		end
+
 		-- Check for ^[transform... with R90, R180, R270
 		for transform_args in tex_str:gmatch("%^%[transform([^%^]+)") do
 			local r = transform_args:match("R(%d+)")
@@ -256,7 +326,7 @@ local function parse_texture_modifiers(def, wield_stack)
 		end
 	end
 
-	return rot_deg, item_color
+	return rot_deg, item_color, has_fx
 end
 
 ---Apply scaling multiplier to a visual_size vector in-place
@@ -273,6 +343,33 @@ local function apply_scale(visual_size, scale)
 		visual_size.y = visual_size.y * scale
 		visual_size.z = visual_size.z * scale
 	end
+end
+
+---Applies custom position, rotation, and scale offsets from a WieldOffsetDefinition
+---@param pos Vector3 Working position vector to mutate
+---@param rot Vector3 Working rotation vector to mutate
+---@param visual_size Vector3 Working visual size vector to mutate
+---@param override WieldOffsetDefinition Override table containing pos, rot, scale
+---@param current_format "glb"|"b3d" Target model format
+local function apply_override(pos, rot, visual_size, override, current_format)
+	if not override then return end
+	local override_pos = (current_format == "b3d" and override.pos_b3d)
+		or (current_format == "glb" and override.pos_glb)
+		or override.pos
+	if override_pos then
+		pos.x = pos.x + (override_pos.x or 0)
+		pos.y = pos.y + (override_pos.y or 0)
+		pos.z = pos.z + (override_pos.z or 0)
+	end
+	local override_rot = (current_format == "b3d" and override.rot_b3d)
+		or (current_format == "glb" and override.rot_glb)
+		or override.rot
+	if override_rot then
+		rot.x = override_rot.x or rot.x
+		rot.y = override_rot.y or rot.y
+		rot.z = override_rot.z or rot.z
+	end
+	apply_scale(visual_size, override.scale)
 end
 
 ---Calculate visual_size, attachment position, rotation, glow, and color for a wielded item.
@@ -347,20 +444,12 @@ function x_player_api.get_wield_attachment_params(item_or_stack, format_override
 		and {x = BASE_ROT_B3D.x, y = BASE_ROT_B3D.y, z = BASE_ROT_B3D.z}
 		or  {x = BASE_ROT_GLB.x, y = BASE_ROT_GLB.y, z = BASE_ROT_GLB.z}
 
+	local rot_deg, item_color = parse_texture_modifiers(def, wield_stack, item_name)
+
 	-- Apply type-level customizations if registered
 	local type_override = x_player_api.wield_item_offsets.types[item_type]
 	if type_override then
-		if type_override.pos then
-			pos.x = pos.x + (type_override.pos.x or 0)
-			pos.y = pos.y + (type_override.pos.y or 0)
-			pos.z = pos.z + (type_override.pos.z or 0)
-		end
-		if type_override.rot then
-			rot.x = type_override.rot.x or rot.x
-			rot.y = type_override.rot.y or rot.y
-			rot.z = type_override.rot.z or rot.z
-		end
-		apply_scale(visual_size, type_override.scale)
+		apply_override(pos, rot, visual_size, type_override, current_format)
 	end
 
 	-- Apply group-level customizations if registered
@@ -371,17 +460,7 @@ function x_player_api.get_wield_attachment_params(item_or_stack, format_override
 				local group_override = x_player_api.wield_item_offsets.groups[group_name]
 				if group_override then
 					active_group_override = group_override
-					if group_override.pos then
-						pos.x = pos.x + (group_override.pos.x or 0)
-						pos.y = pos.y + (group_override.pos.y or 0)
-						pos.z = pos.z + (group_override.pos.z or 0)
-					end
-					if group_override.rot then
-						rot.x = group_override.rot.x or rot.x
-						rot.y = group_override.rot.y or rot.y
-						rot.z = group_override.rot.z or rot.z
-					end
-					apply_scale(visual_size, group_override.scale)
+					apply_override(pos, rot, visual_size, group_override, current_format)
 					break
 				end
 			end
@@ -391,17 +470,7 @@ function x_player_api.get_wield_attachment_params(item_or_stack, format_override
 	-- Apply exact item-level customizations if registered
 	local item_override = x_player_api.wield_item_offsets.items[item_name]
 	if item_override then
-		if item_override.pos then
-			pos.x = pos.x + (item_override.pos.x or 0)
-			pos.y = pos.y + (item_override.pos.y or 0)
-			pos.z = pos.z + (item_override.pos.z or 0)
-		end
-		if item_override.rot then
-			rot.x = item_override.rot.x or rot.x
-			rot.y = item_override.rot.y or rot.y
-			rot.z = item_override.rot.z or rot.z
-		end
-		apply_scale(visual_size, item_override.scale)
+		apply_override(pos, rot, visual_size, item_override, current_format)
 	end
 
 	-- Direct item definition properties
@@ -428,7 +497,6 @@ function x_player_api.get_wield_attachment_params(item_or_stack, format_override
 	-- Apply texture modifier rotation negation:
 	-- If texture is rotated counter-clockwise by Luanti's ^[transformR<deg> (e.g. ^[transformR90 on shovels),
 	-- compensate so held tool remains facing forward with handle in grip.
-	local rot_deg, item_color = parse_texture_modifiers(def, wield_stack)
 	if rot_deg ~= 0 then
 		if item_type == "craftitem" or item_type == "craft" then
 			rot.z = rot.z - rot_deg
