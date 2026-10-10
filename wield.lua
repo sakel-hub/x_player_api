@@ -880,6 +880,23 @@ local function sync_player_wield_slot(
 		if data.glb and data.glb:get_luaentity() then data.glb:remove(); data.glb = nil end
 		if data.b3d and data.b3d:get_luaentity() then data.b3d:remove(); data.b3d = nil end
 	else
+		local active_fmt = x_player_api.get_model_format()
+		local pdata = x_player_api.get_animation(player)
+		local model_name = (pdata and pdata.model) or x_player_api.get_default_model()
+		local model = model_name and x_player_api.get_model(model_name)
+		local mesh_glb = (active_fmt ~= "b3d") and model and (model.mesh_glb
+			or (model.mesh and model.mesh:sub(-4) == ".glb" and model.mesh))
+		local mesh_b3d = model and ((model.mesh and model.mesh:sub(-4) ~= ".glb" and model.mesh)
+			or model.mesh_b3d)
+		local is_b3d_active = (active_fmt == "b3d") or not mesh_glb
+
+		local glb_obs = nil
+		if not is_b3d_active and (mesh_glb and mesh_b3d) then
+			glb_obs = x_player_api.get_modern_observers()
+		elseif is_b3d_active then
+			glb_obs = x_player_api.get_modern_observers()
+		end
+
 		if proxies.glb and proxies.glb:is_valid() then
 			local glb_valid = data.glb and data.glb:get_luaentity() and data.glb:get_attach() == proxies.glb
 			if not glb_valid then
@@ -887,7 +904,7 @@ local function sync_player_wield_slot(
 				local ent = core.add_entity(pos, "x_player_api:wield_item")
 				if ent then
 					ent:set_properties(props_glb)
-					ent:set_observers(x_player_api.get_modern_observers())
+					ent:set_observers(glb_obs)
 					ent:set_attach(proxies.glb, target_bone, pos_glb, rot_glb, forced_vis)
 					data.glb = ent
 					data.attached_pos_glb = pos_glb
@@ -896,6 +913,7 @@ local function sync_player_wield_slot(
 				end
 			else
 				data.glb:set_properties(props_glb)
+				data.glb:set_observers(glb_obs)
 				local last_pos = data.attached_pos_glb
 				local last_rot = data.attached_rot_glb
 				if not last_pos or not last_rot
@@ -911,13 +929,17 @@ local function sync_player_wield_slot(
 		end
 
 		if proxies.b3d and proxies.b3d:is_valid() then
+			local b3d_obs = nil
+			if not is_b3d_active then
+				b3d_obs = x_player_api.get_legacy_observers()
+			end
 			local b3d_valid = data.b3d and data.b3d:get_luaentity() and data.b3d:get_attach() == proxies.b3d
 			if not b3d_valid then
 				if data.b3d and data.b3d:get_luaentity() then data.b3d:remove() end
 				local ent = core.add_entity(pos, "x_player_api:wield_item")
 				if ent then
 					ent:set_properties(props_b3d)
-					ent:set_observers(x_player_api.get_legacy_observers())
+					ent:set_observers(b3d_obs)
 					ent:set_attach(proxies.b3d, target_bone, pos_b3d, rot_b3d, forced_vis)
 					data.b3d = ent
 					data.attached_pos_b3d = pos_b3d
@@ -926,6 +948,7 @@ local function sync_player_wield_slot(
 				end
 			else
 				data.b3d:set_properties(props_b3d)
+				data.b3d:set_observers(b3d_obs)
 				local last_pos = data.attached_pos_b3d
 				local last_rot = data.attached_rot_b3d
 				if not last_pos or not last_rot
@@ -940,11 +963,10 @@ local function sync_player_wield_slot(
 			end
 		end
 
-		local active_fmt = x_player_api.get_model_format()
-		data.obj = (active_fmt == "b3d") and (data.b3d or data.glb) or (data.glb or data.b3d)
+		data.obj = is_b3d_active and (data.b3d or data.glb) or (data.glb or data.b3d)
 	end
 
-	return data.glb or data.b3d or data.obj
+	return data.obj or data.glb or data.b3d
 end
 
 ---Updates forced_visible attachment state on a player slot's active entities
@@ -1170,6 +1192,13 @@ function x_player_api.attach_left_wield_item(player, item_or_stack, options)
 	local stack_str, item_name = parse_item_stack(item_or_stack)
 	data.item = item_name
 
+	local pdata = x_player_api.get_animation(player)
+	local model_name = (pdata and pdata.model) or x_player_api.get_default_model()
+	local model = model_name and x_player_api.get_model(model_name)
+	local active_format = x_player_api.get_model_format()
+	local has_glb = (active_format ~= "b3d") and model and (model.mesh_glb or (model.mesh and model.mesh:match("%.glb$")))
+	local has_b3d = not model or (model.mesh and not model.mesh:match("%.glb$")) or model.mesh_b3d
+
 	local target_bone = (options and options.bone) or BASE_LEFT_BONE
 	local v_size_glb, pos_glb, rot_glb, glow_glb, col_glb =
 		x_player_api.get_left_wield_attachment_params(item_or_stack, "glb")
@@ -1181,9 +1210,14 @@ function x_player_api.attach_left_wield_item(player, item_or_stack, options)
 	)
 
 	local is_empty = (item_name == "")
-	local is_vis = not is_empty and (data.visible ~= false)
-	local props_glb = make_wield_properties(stack_str, is_empty, is_vis, v_size_glb, glow_glb, col_glb, options)
-	local props_b3d = make_wield_properties(stack_str, is_empty, is_vis, v_size_b3d, glow_b3d, col_b3d, options)
+	local is_vis_glb = not is_empty and (has_glb and true or false) and (data.visible ~= false)
+	local is_vis_b3d = not is_empty and (has_b3d and true or false) and (data.visible ~= false)
+	local props_glb = make_wield_properties(
+		stack_str, is_empty or not has_glb, is_vis_glb, v_size_glb, glow_glb, col_glb, options
+	)
+	local props_b3d = make_wield_properties(
+		stack_str, is_empty or not has_b3d, is_vis_b3d, v_size_b3d, glow_b3d, col_b3d, options
+	)
 
 	return sync_player_wield_slot(
 		player, data, target_bone,
@@ -1258,7 +1292,18 @@ function x_player_api.get_left_wield_entity(player)
 	end
 	local name = player:get_player_name()
 	local data = left_wield_entities[name]
-	return data and (data.glb or data.b3d or data.obj)
+	if not data then return nil end
+	local active_fmt = x_player_api.get_model_format()
+	local pdata = x_player_api.get_animation(player)
+	local model_name = (pdata and pdata.model) or x_player_api.get_default_model()
+	local model = model_name and x_player_api.get_model(model_name)
+	local mesh_glb = (active_fmt ~= "b3d") and model and (model.mesh_glb
+		or (model.mesh and model.mesh:sub(-4) == ".glb" and model.mesh))
+	local is_b3d_active = (active_fmt == "b3d") or not mesh_glb
+	if is_b3d_active then
+		return data.b3d or data.glb or data.obj
+	end
+	return data.glb or data.b3d or data.obj
 end
 
 -- =============================================================================

@@ -88,7 +88,9 @@ function x_player_api.refresh_observers()
 	for i = 1, #connected do
 		local player = connected[i]
 		local proxies = x_player_api.get_visual_proxies(player)
-		local wield_data = x_player_api.wield_entities[player:get_player_name()]
+		local name = player:get_player_name()
+		local wield_data = x_player_api.wield_entities[name]
+		local left_data = x_player_api.left_wield_entities and x_player_api.left_wield_entities[name]
 		if proxies then
 			local pdata = x_player_api.get_animation(player)
 			local model_name = (pdata and pdata.model) or x_player_api.get_default_model()
@@ -120,6 +122,17 @@ function x_player_api.refresh_observers()
 						glow = 0,
 					})
 				end
+				if left_data and left_data.b3d and left_data.b3d:is_valid() then
+					left_data.b3d:set_observers(nil)
+				end
+				if left_data and left_data.glb and left_data.glb:is_valid() then
+					left_data.glb:set_properties({
+						is_visible = false,
+						visual_size = {x = 0, y = 0},
+						wield_item = "",
+						glow = 0,
+					})
+				end
 			elseif mesh_glb and mesh_b3d then
 				if proxies.glb and proxies.glb:is_valid() then
 					proxies.glb:set_properties({
@@ -141,6 +154,14 @@ function x_player_api.refresh_observers()
 						wield_data.b3d:set_observers(x_player_api.legacy_cohort)
 					end
 				end
+				if left_data then
+					if left_data.glb and left_data.glb:is_valid() then
+						left_data.glb:set_observers(x_player_api.modern_cohort)
+					end
+					if left_data.b3d and left_data.b3d:is_valid() then
+						left_data.b3d:set_observers(x_player_api.legacy_cohort)
+					end
+				end
 			elseif mesh_glb then
 				if proxies.glb and proxies.glb:is_valid() then
 					proxies.glb:set_observers(nil)
@@ -150,6 +171,17 @@ function x_player_api.refresh_observers()
 				end
 				if wield_data and wield_data.b3d and wield_data.b3d:is_valid() then
 					wield_data.b3d:set_properties({
+						is_visible = false,
+						visual_size = {x = 0, y = 0},
+						wield_item = "",
+						glow = 0,
+					})
+				end
+				if left_data and left_data.glb and left_data.glb:is_valid() then
+					left_data.glb:set_observers(nil)
+				end
+				if left_data and left_data.b3d and left_data.b3d:is_valid() then
+					left_data.b3d:set_properties({
 						is_visible = false,
 						visual_size = {x = 0, y = 0},
 						wield_item = "",

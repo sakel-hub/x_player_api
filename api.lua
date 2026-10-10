@@ -369,6 +369,9 @@ local function refresh_all_connected_models()
 			end
 		end
 		x_player_api.update_wield_item(p, true)
+		if x_player_api.update_left_wield_item then
+			x_player_api.update_left_wield_item(p)
+		end
 		if x_player_api.refresh_head_tracking then
 			x_player_api.refresh_head_tracking(p)
 		end
@@ -576,7 +579,9 @@ function x_player_api.set_model(player, model_name)
 				})
 			end
 
-			local wield_data = x_player_api.wield_entities[player:get_player_name()]
+			local player_name = player:get_player_name()
+			local wield_data = x_player_api.wield_entities[player_name]
+			local left_data = x_player_api.left_wield_entities and x_player_api.left_wield_entities[player_name]
 			if active_format == "b3d" or not mesh_glb then
 				-- In B3D format or B3D-only model: route B3D proxy and wield entity to ALL observers
 				if proxies.b3d and proxies.b3d:is_valid() then
@@ -587,6 +592,17 @@ function x_player_api.set_model(player, model_name)
 				end
 				if wield_data and wield_data.glb and wield_data.glb:is_valid() then
 					wield_data.glb:set_properties({
+						is_visible = false,
+						visual_size = {x = 0, y = 0},
+						wield_item = "",
+						glow = 0,
+					})
+				end
+				if left_data and left_data.b3d and left_data.b3d:is_valid() then
+					left_data.b3d:set_observers(nil)
+				end
+				if left_data and left_data.glb and left_data.glb:is_valid() then
+					left_data.glb:set_properties({
 						is_visible = false,
 						visual_size = {x = 0, y = 0},
 						wield_item = "",
@@ -609,6 +625,14 @@ function x_player_api.set_model(player, model_name)
 						wield_data.b3d:set_observers(x_player_api.get_legacy_observers())
 					end
 				end
+				if left_data then
+					if left_data.glb and left_data.glb:is_valid() then
+						left_data.glb:set_observers(x_player_api.get_modern_observers())
+					end
+					if left_data.b3d and left_data.b3d:is_valid() then
+						left_data.b3d:set_observers(x_player_api.get_legacy_observers())
+					end
+				end
 			elseif mesh_glb then
 				-- GLB-only model
 				if proxies.glb and proxies.glb:is_valid() then
@@ -619,6 +643,17 @@ function x_player_api.set_model(player, model_name)
 				end
 				if wield_data and wield_data.b3d and wield_data.b3d:is_valid() then
 					wield_data.b3d:set_properties({
+						is_visible = false,
+						visual_size = {x = 0, y = 0},
+						wield_item = "",
+						glow = 0,
+					})
+				end
+				if left_data and left_data.glb and left_data.glb:is_valid() then
+					left_data.glb:set_observers(nil)
+				end
+				if left_data and left_data.b3d and left_data.b3d:is_valid() then
+					left_data.b3d:set_properties({
 						is_visible = false,
 						visual_size = {x = 0, y = 0},
 						wield_item = "",

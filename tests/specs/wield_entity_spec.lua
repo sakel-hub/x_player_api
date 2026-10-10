@@ -143,13 +143,13 @@ describe("Wield Item Entity Lifecycle & Properties", function()
 		assert.equal(proxies.b3d, parent_b3d)
 		assert.equal("Arm_Right", bone_b3d)
 
-		-- Verify format-specific orientation: GLB uses {-90, 45, -90}, B3D uses {-90, 225, -90} for swords
+		-- Verify format-specific orientation: GLB uses {-90, 45, -90}, B3D uses {-90, 225, 90} for swords
 		assert.equal(-90, rot_glb.x)
 		assert.equal(45, rot_glb.y)
 		assert.equal(-90, rot_glb.z)
 		assert.equal(-90, rot_b3d.x)
 		assert.equal(225, rot_b3d.y)
-		assert.equal(-90, rot_b3d.z)
+		assert.equal(90, rot_b3d.z)
 
 		-- Verify observer cohort assignment for GLB and B3D wield entities
 		assert.equal(x_player_api.get_modern_observers(), data.glb:get_observers())
@@ -159,23 +159,76 @@ describe("Wield Item Entity Lifecycle & Properties", function()
 	it("hides inactive wield entity and routes active entity to all observers when switched to B3D format", function()
 		player:set_wielded_item("default:sword_steel", 1)
 		player_api.update_wield_item(player, true)
+		player_api.attach_left_wield_item(player, "default:torch")
 
 		local name = player:get_player_name()
 		local data = player_api.wield_entities[name]
+		local left_data = x_player_api.left_wield_entities[name]
 
 		-- Switch to B3D format
 		player_api.set_model_format("b3d")
 
-		-- data.glb must be hidden
+		-- Right hand: data.glb must be hidden, data.b3d visible to all observers (nil)
 		assert.equal(false, data.glb:get_properties().is_visible)
 		assert.equal(0, data.glb:get_properties().visual_size.x)
-
-		-- data.b3d must be visible to all observers (nil)
 		assert.equal(true, data.b3d:get_properties().is_visible)
 		assert.is_nil(data.b3d:get_observers())
 
+		-- Left hand: left_data.glb must be hidden, left_data.b3d visible to all observers (nil)
+		assert.equal(false, left_data.glb:get_properties().is_visible)
+		assert.equal(0, left_data.glb:get_properties().visual_size.x)
+		assert.equal(true, left_data.b3d:get_properties().is_visible)
+		assert.is_nil(left_data.b3d:get_observers())
+
+		-- Subsequent wield updates must preserve nil observers (visible to modern clients)
+		player:set_wielded_item("default:axe_steel", 1)
+		player_api.update_wield_item(player, false)
+		assert.equal(true, data.b3d:get_properties().is_visible)
+		assert.is_nil(data.b3d:get_observers(), "Right arm B3D wield entity must retain nil observers on item update")
+		assert.equal(data.b3d, player_api.get_wield_entity(player))
+
+		player_api.attach_left_wield_item(player, "default:shield_wood")
+		assert.equal(true, left_data.b3d:get_properties().is_visible)
+		assert.is_nil(left_data.b3d:get_observers(), "Left arm B3D wield entity must retain nil observers on item update")
+		assert.equal(left_data.b3d, player_api.get_left_wield_entity(player))
+
 		-- Restore format to glb
 		player_api.set_model_format("glb")
+	end)
+
+	it("renders visible wield items with nil observers in both arms for B3D models under GLB format", function()
+		player_api.register_model("test_b3d_only_hero.b3d", {
+			mesh = "test_b3d_only_hero.b3d",
+			textures = {"character.png"},
+			animations = {
+				stand = {x = 0, y = 79},
+			},
+		})
+
+		player_api.set_model_format("glb")
+		player_api.set_model(player, "test_b3d_only_hero.b3d")
+
+		player:set_wielded_item("default:sword_steel", 1)
+		player_api.update_wield_item(player, true)
+		player_api.attach_left_wield_item(player, "default:torch")
+
+		local name = player:get_player_name()
+		local data = player_api.wield_entities[name]
+		local left_data = x_player_api.left_wield_entities[name]
+
+		-- In B3D-only model with proxies, B3D proxy wield items must be visible to all observers
+		assert.equal(true, data.b3d:get_properties().is_visible)
+		assert.is_nil(data.b3d:get_observers(), "Right hand B3D entity must have nil observers on B3D model")
+		assert.equal(false, data.glb:get_properties().is_visible)
+		assert.equal(data.b3d, player_api.get_wield_entity(player))
+
+		assert.equal(true, left_data.b3d:get_properties().is_visible)
+		assert.is_nil(left_data.b3d:get_observers(), "Left hand B3D entity must have nil observers on B3D model")
+		assert.equal(false, left_data.glb:get_properties().is_visible)
+		assert.equal(left_data.b3d, player_api.get_left_wield_entity(player))
+
+		-- Restore default model
+		player_api.set_model(player, player_api.get_default_model())
 	end)
 
 	it("falls back to attaching directly to player when proxies are absent", function()
