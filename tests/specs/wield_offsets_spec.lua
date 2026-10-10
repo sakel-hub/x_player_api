@@ -55,8 +55,18 @@ describe("Wield Item Offsets and Orientations", function()
 			type = "node",
 			groups = {torch = 1},
 		}
-		local _, _, rot_torch = player_api.get_wield_attachment_params("default:torch")
-		assert.equal(0, rot_torch.y)
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
+		local _, _, rot_torch_glb = player_api.get_wield_attachment_params("default:torch")
+		assert.equal({x = -90, y = 0, z = -90}, rot_torch_glb)
+
+		player_api.clear_item_cache()
+		player_api.set_model_format("b3d")
+		local _, _, rot_torch_b3d = player_api.get_wield_attachment_params("default:torch")
+		assert.equal({x = -90, y = 180, z = 90}, rot_torch_b3d)
+
+		player_api.clear_item_cache()
+		player_api.set_model_format("glb")
 
 		core.registered_items["default:shovel_steel"] = {
 			type = "tool",
@@ -213,7 +223,7 @@ describe("Wield Item Offsets and Orientations", function()
 		local _, _, rot_shov_b3d = player_api.get_wield_attachment_params("default:shovel_mese")
 		assert.equal(-90, rot_shov_b3d.x)
 		assert.equal(135, rot_shov_b3d.y) -- 225 - 90
-		assert.equal(-90, rot_shov_b3d.z)
+		assert.equal(90, rot_shov_b3d.z)
 
 		-- Restore format to glb
 		player_api.clear_item_cache()
@@ -257,7 +267,7 @@ describe("Wield Item Offsets and Orientations", function()
 		local _, pos_b3d, rot_b3d = player_api.get_wield_attachment_params("default:sword_steel")
 		-- In B3D, converts position coordinates for +Z facing mesh and sets y=225 for diagonal tools
 		assert.equal({x = 0, y = 4.9, z = 3.5}, pos_b3d)
-		assert.equal({x = -90, y = 225, z = -90}, rot_b3d)
+		assert.equal({x = -90, y = 225, z = 90}, rot_b3d)
 
 		-- Verify bow orientation parity: both GLB and B3D use {-90, 45, -90}
 		core.registered_items["bows:bow_wood"] = {
@@ -325,7 +335,7 @@ describe("Wield Item Offsets and Orientations", function()
 		assert.equal(mock_corpse, parent)
 		assert.equal("Arm_Right", bone)
 		assert.equal({x = 0, y = 4.9, z = 3.5}, pos)
-		assert.equal({x = -90, y = 225, z = -90}, rot)
+		assert.equal({x = -90, y = 225, z = 90}, rot)
 		assert.equal(true, forced)
 
 		local props = went_b3d:get_properties()
@@ -368,7 +378,7 @@ describe("Wield Item Offsets and Orientations", function()
 		player_api.set_model_format("b3d")
 		local vs_b3d, pos_b3d, rot_b3d = player_api.get_wield_attachment_params("screwdriver:screwdriver")
 		assert.equal({x = 0, y = 4.9, z = 3.5}, pos_b3d)
-		assert.equal({x = -90, y = 135, z = -90}, rot_b3d)
+		assert.equal({x = -90, y = 135, z = 90}, rot_b3d)
 		assert.near(0.275 * 1.33, vs_b3d.x, 1e-4)
 
 		-- Left hand wield mirroring

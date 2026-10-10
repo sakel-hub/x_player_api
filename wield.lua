@@ -83,7 +83,7 @@ local BASE_BONE = "Arm_Right"
 local BASE_POS_GLB = {x = 0, y = 5.2, z = -3.5}
 local BASE_ROT_GLB = {x = -90, y = 45, z = -90}
 local BASE_POS_B3D = {x = 0, y = 5.2, z = 3.5}
-local BASE_ROT_B3D = {x = -90, y = 225, z = -90}
+local BASE_ROT_B3D = {x = -90, y = 225, z = 90}
 local BASE_SCALE_VAL = 0.275
 local WIELD_UPDATE_INTERVAL = tonumber(core.settings:get("x_player_api.wield_update_interval")) or 0.2
 
@@ -137,7 +137,9 @@ x_player_api.wield_item_offsets = {
 	groups = {
 		torch = {
 			pos = {x = 0, y = -0.3, z = -1},
-			rot = {x = -90, y = 0, z = 90},
+			rot = {x = -90, y = 0, z = -90},
+			rot_glb = {x = -90, y = 0, z = -90},
+			rot_b3d = {x = -90, y = 180, z = 90},
 		},
 		sapling = {
 			pos = {x = 0, y = -0.2, z = 0.2},
