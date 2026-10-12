@@ -640,6 +640,18 @@ function mock_env.create_player(name)
 		set_hp = function(self, hp) self._hp = hp end,
 		get_pos = function(self) return self._pos end,
 		set_pos = function(self, pos) self._pos = {x = pos.x, y = pos.y, z = pos.z} end,
+		_meta = {},
+		get_meta = function(self)
+			return {
+				get_string = function(_, k) return self._meta[k] or "" end,
+				set_string = function(_, k, v) self._meta[k] = tostring(v) end,
+				get_int = function(_, k) return tonumber(self._meta[k]) or 0 end,
+				set_int = function(_, k, v) self._meta[k] = tonumber(v) or 0 end,
+				get_float = function(_, k) return tonumber(self._meta[k]) or 0.0 end,
+				set_float = function(_, k, v) self._meta[k] = tonumber(v) or 0.0 end,
+				contains = function(_, k) return self._meta[k] ~= nil end,
+			}
+		end,
 		get_look_dir = function(self) return self._look_dir or {x = 0, y = 0, z = 1} end,
 		set_look_dir = function(self, dir) self._look_dir = {x = dir.x, y = dir.y, z = dir.z} end,
 		get_wielded_item = function()

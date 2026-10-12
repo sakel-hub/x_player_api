@@ -13,6 +13,9 @@ x_player_api.wield_update_interval (Wield Item Update Throttle) float 0.2 0.05 1
 # Enable double-tapping the forward movement key to sprint
 x_player_api.enable_double_tap_sprint (Enable Double-Tap Sprint) bool true
 
+# Enable holding the auxiliary key (AUX1 / Special) while moving forward to sprint
+x_player_api.enable_aux1_sprint (Enable AUX1 Sprint) bool true
+
 # Enable sound effects played when equipping or switching weapons and tools
 x_player_api.enable_equip_sound (Enable Equip Sound Effects) bool true
 

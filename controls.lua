@@ -144,6 +144,25 @@ local CONTROL_KEYS = {
 }
 
 local enable_double_tap_sprint = core.settings:get_bool("x_player_api.enable_double_tap_sprint", true)
+local enable_aux1_sprint = core.settings:get_bool("x_player_api.enable_aux1_sprint", true)
+
+---@type boolean Whether double-tapping the forward key to sprint is enabled
+x_player_api.enable_double_tap_sprint = enable_double_tap_sprint
+
+---@type boolean Whether holding the AUX1 (Special) key to sprint is enabled
+x_player_api.enable_aux1_sprint = enable_aux1_sprint
+
+---Set whether holding the AUX1 key triggers sprint locomotion
+---@param enabled boolean
+function x_player_api.set_aux1_sprint_enabled(enabled)
+	x_player_api.enable_aux1_sprint = (enabled == true)
+end
+
+---Set whether double-tapping the forward movement key triggers sprint locomotion
+---@param enabled boolean
+function x_player_api.set_double_tap_sprint_enabled(enabled)
+	x_player_api.enable_double_tap_sprint = (enabled == true)
+end
 
 -- Double-tap detection threshold (in seconds)
 local DOUBLE_TAP_TIME = 0.28
@@ -920,7 +939,7 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 			-- Pressed event
 			local last_press = pstate.last_press_time[key] or 0
 			local activated_double_tap = false
-			if key == "up" and enable_double_tap_sprint then
+			if key == "up" and (x_player_api.enable_double_tap_sprint ~= false) then
 				if (time_now - last_press) <= DOUBLE_TAP_TIME then
 					pstate.double_tap_sprint = true
 					activated_double_tap = true
@@ -928,7 +947,8 @@ function x_player_api.update_player_controls(player, _dtime, time_now)
 			end
 
 			-- Detect sprint-slide (pressing sneak while sprinting on ground)
-			if key == "sneak" and (current_controls.aux1 or pstate.double_tap_sprint) and current_controls.up then
+			local aux1_sprint_active = (x_player_api.enable_aux1_sprint ~= false) and current_controls.aux1
+			if key == "sneak" and (aux1_sprint_active or pstate.double_tap_sprint) and current_controls.up then
 				if pstate.was_on_ground or is_ground_near(pos, 0.5, pstate) then
 					pstate.sliding_until = time_now + SLIDE_DURATION
 				end
@@ -1046,7 +1066,8 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 		or math_abs(vel.y) > 0.15)
 
 	-- Sprint detection (auxiliary key or double-tap forward while moving)
-	local sprint_key = can_move and (controls.aux1 or (pstate and pstate.double_tap_sprint))
+	local aux1_sprint = (x_player_api.enable_aux1_sprint ~= false) and controls.aux1
+	local sprint_key = can_move and (aux1_sprint or (pstate and pstate.double_tap_sprint))
 	local is_sprinting = can_move and is_moving and is_forward and sprint_key and not is_sneaking and not in_water
 
 	-- Sliding detection (requires forward movement on ground)
@@ -1396,7 +1417,7 @@ function x_player_api.get_player_state(player, time_now)
 	-- Mutate pre-allocated state table in-place (Zero-GC hot loop)
 	local out_state = pstate and pstate.semantic_state or {}
 	out_state.moving = is_moving
-	out_state.sprinting = is_sprinting
+	out_state.sprinting = (loco == "sprint")
 	out_state.crouching = is_sneaking and not is_moving and is_on_ground and not in_water and not on_ladder
 	out_state.crouch_walking = is_sneaking and is_moving and is_on_ground and not in_water and not on_ladder
 	out_state.sliding = is_sliding

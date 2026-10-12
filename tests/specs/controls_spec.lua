@@ -1662,6 +1662,69 @@ describe("Controls & Semantic State Engine", function()
 		assert.equal(0, pstate.sliding_until)
 		assert.equal(0, pstate.hurt_until)
 	end)
+
+	it("respects enable_aux1_sprint setting and programmatic toggles", function()
+		core.get_node_or_nil = function() return {name = "default:dirt"} end
+		core.registered_nodes["default:dirt"] = {walkable = true}
+		player._pos = {x = 0, y = 0.5, z = 0}
+
+		-- 1. Default state: aux1 sprint is enabled
+		assert.is_true(x_player_api.enable_aux1_sprint)
+		player.get_player_control = function()
+			return {up = true, aux1 = true}
+		end
+		player.get_velocity = function()
+			return {x = 0, y = 0, z = 4.0}
+		end
+
+		local state = player_api.get_player_state(player)
+		assert.is_true(state.sprinting)
+		assert.equal("sprint", state.locomotion)
+
+		-- 2. Disabling aux1 sprint suppresses sprint locomotion on aux1
+		x_player_api.set_aux1_sprint_enabled(false)
+		assert.is_false(x_player_api.enable_aux1_sprint)
+
+		state = player_api.get_player_state(player)
+		assert.is_false(state.sprinting)
+		assert.equal("walk", state.locomotion)
+
+		-- 3. Double-tap sprint still works when aux1 sprint is disabled
+		local pstate = x_player_api.controls.player_states[player:get_player_name()]
+		pstate.double_tap_sprint = true
+		player.get_player_control = function()
+			return {up = true}
+		end
+		state = player_api.get_player_state(player)
+		assert.is_true(state.sprinting)
+		assert.equal("sprint", state.locomotion)
+		pstate.double_tap_sprint = false
+
+		-- 4. Sprint-slide is not triggered via aux1 when aux1 sprint is disabled
+		pstate.sliding_until = 0
+		pstate.was_on_ground = true
+		player._controls = {up = true, aux1 = true, sneak = true}
+		x_player_api.update_player_controls(player, 0.05)
+		assert.equal(0, pstate.sliding_until)
+
+		-- 5. Re-enabling aux1 sprint restores behavior
+		x_player_api.set_aux1_sprint_enabled(true)
+		assert.is_true(x_player_api.enable_aux1_sprint)
+		player._controls = {up = true, aux1 = true}
+		pstate.controls = nil
+		player.get_player_control = function()
+			return {up = true, aux1 = true}
+		end
+		state = player_api.get_player_state(player)
+		assert.is_true(state.sprinting)
+		assert.equal("sprint", state.locomotion)
+
+		-- 6. Disabling double-tap sprint
+		x_player_api.set_double_tap_sprint_enabled(false)
+		assert.is_false(x_player_api.enable_double_tap_sprint)
+		x_player_api.set_double_tap_sprint_enabled(true)
+		assert.is_true(x_player_api.enable_double_tap_sprint)
+	end)
 end)
 
 

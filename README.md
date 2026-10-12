@@ -800,6 +800,9 @@ x_player_api.wield_update_interval = 0.2
 # Enable double-tapping forward key to sprint (default: true)
 x_player_api.enable_double_tap_sprint = true
 
+# Enable holding AUX1 (Special) key while moving forward to sprint (default: true)
+x_player_api.enable_aux1_sprint = true
+
 # Preferred global model format (default: glb, options: glb, b3d)
 x_player_api.model_format = glb
 
@@ -807,7 +810,7 @@ x_player_api.model_format = glb
 x_player_api.pure_native_b3d = false
 ```
 
-Or dynamically in Lua via `player_api.set_wield_item_enabled(boolean)`.
+Or dynamically in Lua via `player_api.set_wield_item_enabled(boolean)`, `player_api.set_aux1_sprint_enabled(boolean)`, and `player_api.set_double_tap_sprint_enabled(boolean)`.
 
 *See [3D Wield Item API in API.md](API.md#3d-wield-item-api) for full method signatures, transforms, and [WieldItemCustomDef](API.md#wielditemcustomdef).*
 

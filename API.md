@@ -370,11 +370,11 @@ with an underscore (`_`) to avoid naming collisions with future engine usage.
 | :--- | :--- | :--- |
 | `glow` | `number?` | Explicit entity glow override (0-14) |
 | `pos` | `Vector3?` | Translation offset relative to base hand attachment |
-| `pos_glb` | `Vector3?` | Format-specific translation offset for GLB models |
 | `pos_b3d` | `Vector3?` | Format-specific translation offset for B3D models |
+| `pos_glb` | `Vector3?` | Format-specific translation offset for GLB models |
 | `rot` | `Vector3?` | Euler rotation in degrees (X, Y, Z) |
-| `rot_glb` | `Vector3?` | Format-specific Euler rotation for GLB models |
 | `rot_b3d` | `Vector3?` | Format-specific Euler rotation for B3D models |
+| `rot_glb` | `Vector3?` | Format-specific Euler rotation for GLB models |
 | `scale` | `(number\|Vector3)?` | Scale multipliers for visual_size |
 
 ### `WieldOffsetsRegistry`
@@ -631,6 +631,19 @@ function x_player_api.register_model_redirect(source_model: string, target_model
 
 * `source_model` (`string`): Source model name to intercept
 * `target_model_or_fn` (`string|fun(player: ObjectRef|nil, model: string):string|nil`): Target model name or callback
+
+#### `x_player_api.register_wield_texture_transform`
+
+Register a texture transform modifier for a wielded item or group
+
+```lua
+function x_player_api.register_wield_texture_transform(identifier: string, transform: string)
+```
+
+**Parameters:**
+
+* `identifier` (`string`): Item name ("screwdriver:screwdriver") or group ("group:screwdriver")
+* `transform` (`string`): Transform modifier string without the "^[transform" prefix (e.g. "R90", "R270", "FX")
 
 #### `x_player_api.remove_model_animation`
 
@@ -1867,19 +1880,6 @@ function x_player_api.register_wield_item_offset(identifier: string, def: WieldO
 * `identifier` (`string`): Item name ("default:sword_steel"), group ("group:sword"), or type ("type:node")
 * `def` (`WieldOffsetDefinition`): Table containing pos, rot, scale, and/or glow overrides
 
-#### `x_player_api.register_wield_texture_transform`
-
-Register a texture transform modifier for a wielded item or group
-
-```lua
-function x_player_api.register_wield_texture_transform(identifier: string, transform: string)
-```
-
-**Parameters:**
-
-* `identifier` (`string`): Item name ("screwdriver:screwdriver") or group ("group:screwdriver")
-* `transform` (`string`): Transform modifier string without the `^[transform` prefix (e.g. "R90", "R270", "FX")
-
 #### `x_player_api.remove_left_wield_item`
 
 Removes the left hand wield item entity from a player.
@@ -2052,15 +2052,17 @@ function x_player_api.detect_environment(pos: Vector3, vel: Vector3, pstate?: Pl
 Evaluate whether player is capable of blocking (via held item, offhand shield, or registered predicates)
 
 ```lua
-function x_player_api.evaluate_can_block(player: ObjectRef, wield_name: string, item_info: ItemClassification)
+function x_player_api.evaluate_can_block(player: ObjectRef, wield_name?: string, item_info?: ItemClassification, pstate?: table, time_now?: number)
   -> can_block: boolean
 ```
 
 **Parameters:**
 
 * `player` (`ObjectRef`): Target player
-* `wield_name` (`string`): Held item name
-* `item_info` (`ItemClassification`): Classification of held item
+* `wield_name` (`string?`): Held item name (optional, defaults to player's wielded item)
+* `item_info` (`ItemClassification?`): Classification of held item (optional, auto-classified if omitted)
+* `pstate` (`table?`): Optional internal player state for caching and fast controls
+* `time_now` (`number?`): Optional timestamp for per-tick cache deduplication
 
 **Returns:**
 
@@ -2212,6 +2214,30 @@ function x_player_api.register_on_release(callback: fun(player: ObjectRef, key: 
 
 * `callback` (`fun(player: ObjectRef, key: string, duration: number)`)
 
+#### `x_player_api.set_aux1_sprint_enabled`
+
+Set whether holding the AUX1 key triggers sprint locomotion
+
+```lua
+function x_player_api.set_aux1_sprint_enabled(enabled: boolean)
+```
+
+**Parameters:**
+
+* `enabled` (`boolean`)
+
+#### `x_player_api.set_double_tap_sprint_enabled`
+
+Set whether double-tapping the forward movement key triggers sprint locomotion
+
+```lua
+function x_player_api.set_double_tap_sprint_enabled(enabled: boolean)
+```
+
+**Parameters:**
+
+* `enabled` (`boolean`)
+
 #### `x_player_api.set_pure_native_b3d`
 
 Set pure native B3D mode
@@ -2317,6 +2343,8 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 | `x_player_api.bone_caches` | `table` | Cached bone transformations for network throttling and dual-format routing |
 | `x_player_api.connected_players` | `ObjectRef[]` | Locally maintained array of connected players for zero-allocation tick iteration |
 | `x_player_api.controls` | `PlayerControlsSubsystem` |  |
+| `x_player_api.enable_aux1_sprint` | `unknown` | Whether holding the AUX1 (Special) key to sprint is enabled |
+| `x_player_api.enable_double_tap_sprint` | `unknown` | Whether double-tapping the forward key to sprint is enabled |
 | `x_player_api.enable_eating` | `unknown` | Whether eating animations, sounds, and particle simulations are enabled |
 | `x_player_api.enable_equip_sound` | `unknown` | Whether declarative item equip sound effects are enabled |
 | `x_player_api.enable_left_wield_first_person` | `unknown` | Whether 3D wielded item in the left hand is visible in 1st person view by default |
@@ -2338,4 +2366,4 @@ function x_player_api.wrap_player_metatable(player: ObjectRef)
 | `x_player_api.registered_weapon_categories` | `table<string, string>` |  |
 | `x_player_api.wield_entities` | `table<string, WieldItemEntityData>` |  |
 | `x_player_api.wield_item_offsets` | `WieldOffsetsRegistry` |  Offset and rotation customization registry |
-| `x_player_api.wield_texture_transforms` | `table<string, string>` | Wielded item texture transform modifier registry |
+| `x_player_api.wield_texture_transforms` | `table` | Wielded item texture transformation registry Maps item names or group identifiers ("group:screwdriver") to texture transform modifier strings (e.g. "R90") Provides an agnostic mechanism for aligning items whose 2D artwork is drawn with non-standard rotations |
