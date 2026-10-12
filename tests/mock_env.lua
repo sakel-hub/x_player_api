@@ -716,6 +716,24 @@ function mock_env.create_player(name)
 		get_velocity = function(self) return self._velocity or {x = 0, y = 0, z = 0} end,
 		set_velocity = function(self, vel) self._velocity = {x = vel.x or 0, y = vel.y or 0, z = vel.z or 0} end,
 		get_player_velocity = function(self) return self:get_velocity() end,
+		_physics_override = {speed = 1.0, jump = 1.0, gravity = 1.0, sneak = true, sneak_glitch = false, new_move = true},
+		get_physics_override = function(self)
+			local po = self._physics_override or {}
+			return {
+				speed = po.speed or 1.0,
+				jump = po.jump or 1.0,
+				gravity = po.gravity or 1.0,
+				sneak = po.sneak ~= false,
+				sneak_glitch = po.sneak_glitch or false,
+				new_move = po.new_move ~= false,
+			}
+		end,
+		set_physics_override = function(self, override)
+			self._physics_override = self._physics_override or {}
+			for k, v in pairs(override or {}) do
+				self._physics_override[k] = v
+			end
+		end,
 		set_attach = function(self, parent, bone, position, rotation, forced_visible)
 			if self._attach and self._attach.parent and self._attach.parent._children then
 				for i = #self._attach.parent._children, 1, -1 do
