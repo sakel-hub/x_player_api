@@ -1084,7 +1084,7 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 		local fly_speed_threshold = 6.5
 
 		-- Jumping and falling take precedence over flight (e.g. sprint-jumping)
-		if vel.y > 0.5 or (controls.jump and vel.y > 0.0) then
+		if vel.y > 0.5 or (controls.jump and vel.y >= 0.0) then
 			is_jumping = true
 			if pstate then pstate.was_jumping = true end
 		elseif vel.y < -0.5 then
@@ -1096,7 +1096,8 @@ local function resolve_locomotion(player, pstate, controls, vel, hp, is_attached
 				is_jumping = true
 			elseif vel.y < 0.0 then
 				is_falling = true
-				pstate.was_jumping = false
+			elseif controls.jump then
+				is_jumping = true
 			else
 				is_hovering = true
 				pstate.was_jumping = false

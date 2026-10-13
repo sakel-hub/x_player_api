@@ -458,7 +458,147 @@ describe("Controls & Semantic State Engine", function()
 		local state3 = player_api.get_player_state(player)
 		assert.is_false(state3.flying)
 		assert.is_true(state3.falling)
-		assert.equal("fall", state3.locomotion)
+	end)
+
+	it("seamlessly transitions from jump to fall during continuous jumping without hover or stand stutter", function()
+		core.registered_nodes["default:dirt"] = {walkable = true}
+		core.get_node_or_nil = function(pos)
+			if math.floor(pos.y + 0.5) <= 0 then return {name = "default:dirt"} end
+			return {name = "air"}
+		end
+
+		player.get_player_control = function() return {jump = true} end
+
+		-- Jump 1 Takeoff
+		player._pos = {x = 0, y = 0.55, z = 0}
+		player.get_velocity = function() return {x = 0, y = 6.5, z = 0} end
+		local s_takeoff = player_api.get_player_state(player)
+		assert.is_true(s_takeoff.jumping)
+		assert.is_false(s_takeoff.falling)
+		assert.is_false(s_takeoff.hovering)
+		assert.equal("jump", s_takeoff.locomotion)
+
+		-- Jump 1 Ascent
+		player._pos = {x = 0, y = 1.2, z = 0}
+		player.get_velocity = function() return {x = 0, y = 4.0, z = 0} end
+		local s_ascent = player_api.get_player_state(player)
+		assert.is_true(s_ascent.jumping)
+		assert.is_false(s_ascent.falling)
+		assert.is_false(s_ascent.hovering)
+		assert.equal("jump", s_ascent.locomotion)
+
+		-- Jump 1 Near Apex
+		player._pos = {x = 0, y = 1.7, z = 0}
+		player.get_velocity = function() return {x = 0, y = 0.3, z = 0} end
+		local s_near_apex = player_api.get_player_state(player)
+		assert.is_true(s_near_apex.jumping)
+		assert.is_false(s_near_apex.falling)
+		assert.is_false(s_near_apex.hovering)
+		assert.equal("jump", s_near_apex.locomotion)
+
+		-- Jump 1 Exact Apex (vel.y == 0.0 with jump key held)
+		player._pos = {x = 0, y = 1.75, z = 0}
+		player.get_velocity = function() return {x = 0, y = 0.0, z = 0} end
+		local s_apex = player_api.get_player_state(player)
+		assert.is_true(s_apex.jumping)
+		assert.is_false(s_apex.falling)
+		assert.is_false(s_apex.hovering)
+		assert.equal("jump", s_apex.locomotion)
+
+		-- Jump 1 Early Descent (vel.y = -0.15 in turnover window)
+		player._pos = {x = 0, y = 1.73, z = 0}
+		player.get_velocity = function() return {x = 0, y = -0.15, z = 0} end
+		local s_early_descent = player_api.get_player_state(player)
+		assert.is_false(s_early_descent.jumping)
+		assert.is_true(s_early_descent.falling)
+		assert.is_false(s_early_descent.hovering)
+		assert.equal("fall", s_early_descent.locomotion)
+
+		-- Jump 1 Mid Descent (vel.y = -0.35 in turnover window)
+		player._pos = {x = 0, y = 1.65, z = 0}
+		player.get_velocity = function() return {x = 0, y = -0.35, z = 0} end
+		local s_mid_descent = player_api.get_player_state(player)
+		assert.is_false(s_mid_descent.jumping)
+		assert.is_true(s_mid_descent.falling)
+		assert.is_false(s_mid_descent.hovering)
+		assert.equal("fall", s_mid_descent.locomotion)
+
+		-- Jump 1 Fast Fall (vel.y = -2.5)
+		player._pos = {x = 0, y = 1.2, z = 0}
+		player.get_velocity = function() return {x = 0, y = -2.5, z = 0} end
+		local s_fast_fall = player_api.get_player_state(player)
+		assert.is_false(s_fast_fall.jumping)
+		assert.is_true(s_fast_fall.falling)
+		assert.is_false(s_fast_fall.hovering)
+		assert.equal("fall", s_fast_fall.locomotion)
+
+		-- Jump 1 Landing Touchdown
+		player._pos = {x = 0, y = 0.5, z = 0}
+		player.get_velocity = function() return {x = 0, y = 0.0, z = 0} end
+		local s_landed = player_api.get_player_state(player)
+		assert.is_false(s_landed.jumping)
+		assert.is_false(s_landed.falling)
+		assert.is_false(s_landed.hovering)
+		assert.equal("stand", s_landed.locomotion)
+
+		-- Jump 2 Immediate Bounce Takeoff (jump key held continuously)
+		player._pos = {x = 0, y = 0.55, z = 0}
+		player.get_velocity = function() return {x = 0, y = 6.5, z = 0} end
+		local s_jump2_takeoff = player_api.get_player_state(player)
+		assert.is_true(s_jump2_takeoff.jumping)
+		assert.is_false(s_jump2_takeoff.falling)
+		assert.is_false(s_jump2_takeoff.hovering)
+		assert.equal("jump", s_jump2_takeoff.locomotion)
+
+		-- Jump 2 Early Descent turnover
+		player._pos = {x = 0, y = 1.73, z = 0}
+		player.get_velocity = function() return {x = 0, y = -0.2, z = 0} end
+		local s_jump2_turnover = player_api.get_player_state(player)
+		assert.is_false(s_jump2_turnover.jumping)
+		assert.is_true(s_jump2_turnover.falling)
+		assert.is_false(s_jump2_turnover.hovering)
+		assert.equal("fall", s_jump2_turnover.locomotion)
+	end)
+
+	it("maintains falling locomotion during multi-tick sprint-jump turnover without flying", function()
+		core.get_node_or_nil = function() return {name = "air"} end
+		player.get_player_control = function() return {up = true, aux1 = true, jump = true} end
+
+		-- Ascent
+		player._pos = {x = 0, y = 2.0, z = 0}
+		player.get_velocity = function() return {x = 8.0, y = 4.5, z = 0} end
+		local s_rise = player_api.get_player_state(player)
+		assert.is_false(s_rise.flying)
+		assert.is_true(s_rise.jumping)
+		assert.equal("jump", s_rise.locomotion)
+
+		-- Apex turnover (vel.y = 0.0)
+		player.get_velocity = function() return {x = 8.0, y = 0.0, z = 0} end
+		local s_apex = player_api.get_player_state(player)
+		assert.is_false(s_apex.flying)
+		assert.is_true(s_apex.jumping)
+		assert.equal("jump", s_apex.locomotion)
+
+		-- Early descent tick 1 (vel.y = -0.15)
+		player.get_velocity = function() return {x = 8.0, y = -0.15, z = 0} end
+		local s_turnover1 = player_api.get_player_state(player)
+		assert.is_false(s_turnover1.flying)
+		assert.is_true(s_turnover1.falling)
+		assert.equal("fall", s_turnover1.locomotion)
+
+		-- Early descent tick 2 (vel.y = -0.35, still in -0.5 <= vel.y < 0.0 window)
+		player.get_velocity = function() return {x = 8.0, y = -0.35, z = 0} end
+		local s_turnover2 = player_api.get_player_state(player)
+		assert.is_false(s_turnover2.flying)
+		assert.is_true(s_turnover2.falling)
+		assert.equal("fall", s_turnover2.locomotion)
+
+		-- Fast fall (vel.y = -4.0)
+		player.get_velocity = function() return {x = 8.0, y = -4.0, z = 0} end
+		local s_fall = player_api.get_player_state(player)
+		assert.is_false(s_fall.flying)
+		assert.is_true(s_fall.falling)
+		assert.equal("fall", s_fall.locomotion)
 	end)
 
 	it("maintains walking locomotion without fall jitter when stepping down slopes", function()
