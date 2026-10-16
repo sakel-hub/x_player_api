@@ -664,7 +664,7 @@ local function make_wield_properties(stack_str, is_empty, is_vis, v_size, glow, 
 			visual_size = options.visual_size or {x = 1, y = 1, z = 1},
 			glow = (options and options.glow) or glow or 0,
 			pointable = false,
-			use_texture_alpha = true,
+			use_texture_alpha = (options.use_texture_alpha == true),
 			backface_culling = false,
 			is_visible = is_vis,
 		}
