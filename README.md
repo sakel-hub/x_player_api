@@ -987,6 +987,15 @@ Enable `x_player_api` in your world configuration. If `player_api` is present, `
 
 ---
 
+## AI Transparency & Assistance Statement
+
+This package adheres to an **AI-Assisted** development model under strict human authorship and editorial control:
+
+- **Human Creative Authority & Codebase**: All software architecture, gameplay mechanics, core algorithms, and mod logic are authored, designed, and directed by a human developer.
+- **Administrative & Tooling Scope**: AI tools are utilized strictly in an auxiliary capacity for administrative workflows, repository maintenance (e.g., changelogs, commit formatting), documentation drafting, and test-case structuring.
+- **Zero Synthetic Media**: Generative AI is **not** used to produce textures, sprites, 3D meshes/models, audio, or visual assets. All media files are created or attributed to original human artists under valid open licenses.
+- **Verification & Responsibility**: Every line of code, configuration, and documentation is manually inspected, tested, and validated by the maintainer, who retains full copyright and legal responsibility for the package.
+
 ## Authors & License
 
 See `license.txt` for license details (LGPLv2.1+ / CC-BY-4.0).
